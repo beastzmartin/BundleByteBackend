@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node src/seeds/seed.js",
+    "test:mongo": "node src/scripts/testMongoConnection.js",
     "test:google": "node src/scripts/testGoogleAuth.js",
     "test:telegram": "node src/scripts/testTelegramAuth.js",
     "test:rbac": "node src/scripts/testEnterpriseRBAC.js",

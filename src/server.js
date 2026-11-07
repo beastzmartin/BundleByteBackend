@@ -78,6 +78,7 @@ app.use(
 
 // Serve uploaded website assets (logos, banners, popup media)
 app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+app.use('/uploads', express.static(path.resolve(process.cwd(), 'backend/uploads')));
 
 // Logging
 if (ENV.NODE_ENV === 'development') {
