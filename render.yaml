@@ -23,3 +23,4 @@ services:
         value: 7
       - key: MOCK_PAYMENT_ENABLED
         value: "false"
+
