@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.js"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/sla",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/paytm",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}
+

@@ -27,13 +27,37 @@ export const sanitizeHtmlContent = (htmlString) => {
 };
 
 // Configure Multer for secure image uploads
-const uploadsDir = path.resolve(process.cwd(), 'uploads/website');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const isServerless = process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_VERSION);
+let uploadsDir = isServerless
+  ? path.resolve('/tmp', 'uploads/website')
+  : path.resolve(process.cwd(), 'uploads/website');
+
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (err) {
+  // In serverless environments, process.cwd() is read-only. Fallback to /tmp
+  uploadsDir = path.resolve('/tmp', 'uploads/website');
+  try {
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+  } catch (_) {}
 }
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    try {
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+    } catch (_) {
+      uploadsDir = path.resolve('/tmp', 'uploads/website');
+      if (!fs.existsSync(uploadsDir)) {
+        try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (_) {}
+      }
+    }
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
