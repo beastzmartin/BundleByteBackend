@@ -13,6 +13,7 @@
     "test:telegram": "node src/scripts/testTelegramAuth.js",
     "test:rbac": "node src/scripts/testEnterpriseRBAC.js",
     "test:support": "node src/scripts/testUnifiedSupport.js",
+    "postinstall": "npm --prefix ../frontend install || npm --prefix frontend install || true",
     "build": "echo 'Backend build complete'"
   },
   "dependencies": {
@@ -31,7 +32,9 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.13",
-    "socket.io": "^4.8.4"
+    "socket.io": "^4.8.4",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.13"
   },
   "devDependencies": {
     "nodemon": "^3.1.3"
