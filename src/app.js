@@ -98,7 +98,19 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'x-guest-token',
+      'x-guest-session-id',
+      'X-Guest-Token',
+      'X-Guest-Session-Id',
+      'Cache-Control',
+      'Pragma',
+    ],
   })
 );
 
