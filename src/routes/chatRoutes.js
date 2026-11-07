@@ -3,6 +3,7 @@ import { protect, optionalProtect } from '../middleware/auth.js';
 import { requirePermission } from '../middleware/rbac.js';
 import {
   initiateChat,
+  getMyActiveChat,
   getChatHistory,
   sendChatMessage,
   convertChatToTicket,
@@ -16,6 +17,7 @@ const router = express.Router();
 
 // Public & Customer Endpoints (supports both authenticated accounts and guests)
 router.post('/initiate', optionalProtect, initiateChat);
+router.get('/my-active', optionalProtect, getMyActiveChat);
 router.get('/:id', optionalProtect, getChatHistory);
 router.post('/:id/messages', optionalProtect, sendChatMessage);
 router.post('/:id/convert-to-ticket', optionalProtect, convertChatToTicket);

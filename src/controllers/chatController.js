@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import ChatConversation from '../models/ChatConversation.js';
 import ChatMessage from '../models/ChatMessage.js';
 import SupportTicket from '../models/SupportTicket.js';
@@ -14,6 +15,81 @@ const hashToken = (token) => {
 };
 
 /**
+ * @desc Retrieve current user's or guest's active live chat conversation
+ * @route GET /api/chat/my-active
+ */
+export const getMyActiveChat = async (req, res, next) => {
+  try {
+    let conversation = null;
+
+    if (req.user) {
+      conversation = await ChatConversation.findOne({
+        customer: req.user._id,
+        status: { $in: ['active', 'waiting_agent', 'assigned'] },
+      })
+        .populate('customer', 'name email avatar role')
+        .populate('assignedAgent', 'name email avatar')
+        .populate('department', 'name slug')
+        .populate('relatedOrder', 'orderNumber totalAmount paymentStatus')
+        .populate('relatedProduct', 'title logo slug')
+        .populate('convertedTicket', 'ticketNumber status')
+        .sort({ updatedAt: -1 });
+    } else {
+      const guestToken = req.headers['x-guest-token'] || req.query.guestToken || req.query.token;
+      const guestSessionId = req.headers['x-guest-session-id'] || req.query.guestSessionId;
+
+      if (guestToken) {
+        const tokenHash = hashToken(guestToken);
+        conversation = await ChatConversation.findOne({
+          isGuest: true,
+          'guestInfo.tokenHash': tokenHash,
+          status: { $in: ['active', 'waiting_agent', 'assigned'] },
+        })
+          .populate('assignedAgent', 'name email avatar')
+          .populate('department', 'name slug')
+          .populate('relatedOrder', 'orderNumber totalAmount paymentStatus')
+          .populate('relatedProduct', 'title logo slug')
+          .populate('convertedTicket', 'ticketNumber status')
+          .sort({ updatedAt: -1 });
+      } else if (guestSessionId) {
+        conversation = await ChatConversation.findOne({
+          isGuest: true,
+          'guestInfo.sessionId': guestSessionId,
+          status: { $in: ['active', 'waiting_agent', 'assigned'] },
+        })
+          .populate('assignedAgent', 'name email avatar')
+          .populate('department', 'name slug')
+          .populate('relatedOrder', 'orderNumber totalAmount paymentStatus')
+          .populate('relatedProduct', 'title logo slug')
+          .populate('convertedTicket', 'ticketNumber status')
+          .sort({ updatedAt: -1 });
+      }
+    }
+
+    if (!conversation) {
+      return res.status(200).json({
+        success: true,
+        conversation: null,
+        messages: [],
+      });
+    }
+
+    const messages = await ChatMessage.find({
+      conversation: conversation._id,
+      isInternalNote: false,
+    }).sort({ createdAt: 1 });
+
+    return res.status(200).json({
+      success: true,
+      conversation,
+      messages,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
  * @desc Initiate a new live chat conversation (Registered User or Guest)
  * @route POST /api/chat/initiate
  */
@@ -22,14 +98,19 @@ export const initiateChat = async (req, res, next) => {
     const {
       guestName,
       guestEmail,
+      guestSessionId,
       category = 'General Inquiry',
       priority = 'normal',
       relatedOrderId,
+      relatedOrder,
       relatedProductId,
       departmentId,
       initialMessage,
+      message,
     } = req.body;
 
+    const actualMessage = (initialMessage || message || '').trim();
+    const actualOrderId = relatedOrderId || relatedOrder || null;
     const conversationId = `CHAT-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
 
     let conversation;
@@ -41,31 +122,55 @@ export const initiateChat = async (req, res, next) => {
       const existing = await ChatConversation.findOne({
         customer: req.user._id,
         status: { $in: ['active', 'waiting_agent', 'assigned'] },
-      });
+      })
+        .populate('customer', 'name email avatar role')
+        .populate('assignedAgent', 'name email avatar')
+        .populate('department', 'name slug')
+        .populate('relatedOrder', 'orderNumber totalAmount paymentStatus')
+        .populate('relatedProduct', 'title logo slug');
 
       if (existing) {
-        if (initialMessage && initialMessage.trim()) {
-          await ChatMessage.create({
+        let createdMsg = null;
+        if (actualMessage) {
+          createdMsg = await ChatMessage.create({
             conversation: existing._id,
             sender: req.user._id,
             senderType: 'customer',
             senderName: req.user.name,
-            message: initialMessage.trim(),
+            message: actualMessage,
             messageType: 'text',
           });
           existing.lastMessage = {
-            text: initialMessage.trim(),
+            text: actualMessage,
             senderRole: 'customer',
             timestamp: new Date(),
           };
           existing.lastActivityAt = new Date();
           await existing.save();
+
+          const io = getIO();
+          if (io) {
+            io.to(`conversation:${existing._id}`).emit('new_message', { conversationId: existing._id, message: createdMsg });
+            io.to(`conversation:${existing._id}`).emit('chat:message_received', createdMsg);
+            io.to('staff:support').emit('chat:message_received', createdMsg);
+            io.to('staff:support').emit('conversation_updated', {
+              conversationId: existing._id,
+              lastMessage: existing.lastMessage,
+            });
+            io.to('staff:support').emit('queue:updated');
+          }
         }
+
+        const messages = await ChatMessage.find({
+          conversation: existing._id,
+          isInternalNote: false,
+        }).sort({ createdAt: 1 });
 
         return res.status(200).json({
           success: true,
           message: 'Active conversation resumed',
           conversation: existing,
+          messages,
           isExisting: true,
         });
       }
@@ -82,7 +187,7 @@ export const initiateChat = async (req, res, next) => {
         department: departmentId || null,
         assignedAgent: optimalAgent?._id || null,
         status: optimalAgent ? 'assigned' : 'waiting_agent',
-        relatedOrder: relatedOrderId || null,
+        relatedOrder: actualOrderId,
         relatedProduct: relatedProductId || null,
       });
     } else {
@@ -103,7 +208,7 @@ export const initiateChat = async (req, res, next) => {
         conversationId,
         isGuest: true,
         guestInfo: {
-          sessionId: `guest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          sessionId: guestSessionId || `guest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           name: guestName.trim(),
           email: guestEmail.toLowerCase().trim(),
           tokenHash,
@@ -113,29 +218,37 @@ export const initiateChat = async (req, res, next) => {
         department: departmentId || null,
         assignedAgent: optimalAgent?._id || null,
         status: optimalAgent ? 'assigned' : 'waiting_agent',
-        relatedOrder: relatedOrderId || null,
+        relatedOrder: actualOrderId,
         relatedProduct: relatedProductId || null,
       });
     }
 
     // Persist initial message if provided
-    if (initialMessage && initialMessage.trim()) {
-      await ChatMessage.create({
+    let createdInitialMsg = null;
+    if (actualMessage) {
+      createdInitialMsg = await ChatMessage.create({
         conversation: conversation._id,
         sender: req.user?._id || null,
         senderType: req.user ? 'customer' : 'guest',
         senderName: req.user ? req.user.name : guestName.trim(),
-        message: initialMessage.trim(),
+        message: actualMessage,
         messageType: 'text',
       });
 
       conversation.lastMessage = {
-        text: initialMessage.trim(),
+        text: actualMessage,
         senderRole: req.user ? 'customer' : 'guest',
         timestamp: new Date(),
       };
       await conversation.save();
     }
+
+    const populatedConvo = await ChatConversation.findById(conversation._id)
+      .populate('customer', 'name email avatar role')
+      .populate('assignedAgent', 'name email avatar')
+      .populate('department', 'name slug')
+      .populate('relatedOrder', 'orderNumber totalAmount paymentStatus')
+      .populate('relatedProduct', 'title logo slug');
 
     // Notify staff room through Socket.IO
     const io = getIO();
@@ -146,13 +259,20 @@ export const initiateChat = async (req, res, next) => {
         customerName: req.user ? req.user.name : guestName,
         assignedAgent: conversation.assignedAgent,
       });
+      io.to('staff:support').emit('conversation_updated', {
+        conversationId: conversation._id,
+        lastMessage: conversation.lastMessage,
+      });
+      io.to('staff:support').emit('queue:updated');
     }
 
     return res.status(201).json({
       success: true,
       message: 'Live chat initiated successfully',
-      conversation,
+      conversation: populatedConvo || conversation,
+      messages: createdInitialMsg ? [createdInitialMsg] : [],
       rawGuestToken,
+      guestToken: rawGuestToken,
     });
   } catch (err) {
     next(err);
@@ -165,6 +285,10 @@ export const initiateChat = async (req, res, next) => {
  */
 export const getChatHistory = async (req, res, next) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
     const conversation = await ChatConversation.findById(req.params.id)
       .populate('customer', 'name email avatar role')
       .populate('assignedAgent', 'name email avatar')
@@ -186,8 +310,11 @@ export const getChatHistory = async (req, res, next) => {
     } else if (req.user && conversation.customer && conversation.customer._id.toString() === req.user._id.toString()) {
       authorized = true;
     } else if (conversation.isGuest) {
-      const guestToken = req.headers['x-guest-token'] || req.query.token;
+      const guestToken = req.headers['x-guest-token'] || req.query.token || req.query.guestToken;
+      const guestSessionId = req.headers['x-guest-session-id'] || req.query.guestSessionId;
       if (guestToken && hashToken(guestToken) === conversation.guestInfo?.tokenHash) {
+        authorized = true;
+      } else if (guestSessionId && guestSessionId === conversation.guestInfo?.sessionId) {
         authorized = true;
       }
     }
@@ -233,6 +360,10 @@ export const sendChatMessage = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Message text is required' });
     }
 
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
     const conversation = await ChatConversation.findById(req.params.id);
     if (!conversation) {
       return res.status(404).json({ success: false, message: 'Conversation not found' });
@@ -249,11 +380,15 @@ export const sendChatMessage = async (req, res, next) => {
       senderType = 'agent';
       senderName = req.user?.name || 'Support Agent';
     } else if (conversation.isGuest) {
-      const guestToken = req.headers['x-guest-token'] || req.query.token;
-      if (!guestToken || hashToken(guestToken) !== conversation.guestInfo?.tokenHash) {
+      const guestToken = req.headers['x-guest-token'] || req.query.token || req.query.guestToken;
+      const guestSessionId = req.headers['x-guest-session-id'] || req.query.guestSessionId;
+      if (guestToken && hashToken(guestToken) === conversation.guestInfo?.tokenHash) {
+        senderType = 'guest';
+      } else if (guestSessionId && guestSessionId === conversation.guestInfo?.sessionId) {
+        senderType = 'guest';
+      } else {
         return res.status(403).json({ success: false, message: 'Invalid guest token' });
       }
-      senderType = 'guest';
     } else if (!req.user || conversation.customer.toString() !== req.user._id.toString()) {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
@@ -293,17 +428,22 @@ export const sendChatMessage = async (req, res, next) => {
     if (io) {
       if (actualInternal) {
         io.to('staff:support').emit('new_internal_note', { conversationId: conversation._id, message: newMsg });
+        io.to('staff:support').emit('chat:message_received', newMsg);
       } else {
         io.to(`conversation:${conversation._id}`).emit('new_message', { conversationId: conversation._id, message: newMsg });
+        io.to(`conversation:${conversation._id}`).emit('chat:message_received', newMsg);
+        io.to('staff:support').emit('chat:message_received', newMsg);
         io.to('staff:support').emit('conversation_updated', {
           conversationId: conversation._id,
           lastMessage: conversation.lastMessage,
         });
+        io.to('staff:support').emit('queue:updated');
       }
     }
 
     return res.status(201).json({
       success: true,
+      chatMessage: newMsg,
       message: newMsg,
     });
   } catch (err) {
@@ -408,6 +548,19 @@ export const convertChatToTicket = async (req, res, next) => {
       severity: SENSITIVITY_LEVELS.MEDIUM,
     });
 
+    const io = getIO();
+    if (io) {
+      const payload = {
+        conversationId: conversation._id,
+        status: 'converted_to_ticket',
+        convertedTicketNumber: newTicket.ticketNumber,
+      };
+      io.to(`conversation:${conversation._id}`).emit('chat:status_changed', payload);
+      io.to(`conversation:${conversation._id}`).emit('status_changed', payload);
+      io.to('staff:support').emit('conversation_updated', payload);
+      io.to('staff:support').emit('queue:updated');
+    }
+
     return res.status(201).json({
       success: true,
       message: `Conversation successfully converted to ticket #${newTicket.ticketNumber}`,
@@ -444,6 +597,20 @@ export const assignChat = async (req, res, next) => {
 
     await conversation.save();
 
+    const io = getIO();
+    if (io) {
+      const payload = {
+        conversationId: conversation._id,
+        agent: conversation.assignedAgent,
+        status: conversation.status,
+      };
+      io.to(`conversation:${conversation._id}`).emit('chat:agent_assigned', payload);
+      io.to(`conversation:${conversation._id}`).emit('agent_assigned', payload);
+      io.to(`conversation:${conversation._id}`).emit('chat:status_changed', payload);
+      io.to('staff:support').emit('conversation_updated', payload);
+      io.to('staff:support').emit('queue:updated');
+    }
+
     return res.status(200).json({
       success: true,
       message: agentId ? 'Conversation assigned successfully' : 'Conversation unassigned',
@@ -468,6 +635,18 @@ export const updateChatStatus = async (req, res, next) => {
 
     conversation.status = status;
     await conversation.save();
+
+    const io = getIO();
+    if (io) {
+      const payload = {
+        conversationId: conversation._id,
+        status: conversation.status,
+      };
+      io.to(`conversation:${conversation._id}`).emit('chat:status_changed', payload);
+      io.to(`conversation:${conversation._id}`).emit('status_changed', payload);
+      io.to('staff:support').emit('conversation_updated', payload);
+      io.to('staff:support').emit('queue:updated');
+    }
 
     return res.status(200).json({
       success: true,

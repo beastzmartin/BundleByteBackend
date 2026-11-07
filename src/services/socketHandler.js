@@ -53,8 +53,8 @@ export const initSocket = (io) => {
       socket.join(`user:${socket.user._id}`);
     }
 
-    // Join Conversation Room
-    socket.on('join_conversation', async ({ conversationId, guestToken }, callback) => {
+    // Join Conversation Room (supports both join_conversation and chat:join)
+    const handleJoinConversation = async ({ conversationId, guestToken }, callback) => {
       try {
         const conversation = await ChatConversation.findById(conversationId);
         if (!conversation) {
@@ -73,6 +73,11 @@ export const initSocket = (io) => {
           if (tokenToCheck) {
             const hash = crypto.createHash('sha256').update(tokenToCheck).digest('hex');
             if (hash === conversation.guestInfo?.tokenHash) {
+              authorized = true;
+            }
+          }
+          if (!authorized && socket.guestSessionId && conversation.guestInfo?.sessionId) {
+            if (socket.guestSessionId === conversation.guestInfo.sessionId) {
               authorized = true;
             }
           }
@@ -101,15 +106,20 @@ export const initSocket = (io) => {
         console.error('Error joining conversation room:', err);
         if (callback) callback({ success: false, message: err.message });
       }
-    });
+    };
+
+    socket.on('join_conversation', handleJoinConversation);
+    socket.on('chat:join', handleJoinConversation);
 
     // Leave Conversation Room
-    socket.on('leave_conversation', ({ conversationId }) => {
+    const handleLeaveConversation = ({ conversationId }) => {
       socket.leave(`conversation:${conversationId}`);
-    });
+    };
+    socket.on('leave_conversation', handleLeaveConversation);
+    socket.on('chat:leave', handleLeaveConversation);
 
-    // Real-Time Message Dispatch
-    socket.on('send_message', async (data, callback) => {
+    // Real-Time Message Dispatch (supports both send_message and chat:message)
+    const handleSendMessage = async (data, callback) => {
       try {
         const { conversationId, message, attachments = [], isInternalNote = false, guestToken } = data;
         if (!message || !message.trim()) {
@@ -171,17 +181,19 @@ export const initSocket = (io) => {
 
         // Broadcast: If internal note, send ONLY to staff in room or staff channel
         if (actualInternalNote) {
-          // Emit only to staff
           io.to('staff:support').emit('new_internal_note', {
             conversationId,
             message: newMsg,
           });
+          io.to('staff:support').emit('chat:message_received', newMsg);
         } else {
           // Public message to room participants
           io.to(`conversation:${conversationId}`).emit('new_message', {
             conversationId,
             message: newMsg,
           });
+          io.to(`conversation:${conversationId}`).emit('chat:message_received', newMsg);
+          io.to('staff:support').emit('chat:message_received', newMsg);
 
           // Queue update for all staff dashboard subscribers
           io.to('staff:support').emit('conversation_updated', {
@@ -190,6 +202,7 @@ export const initSocket = (io) => {
             status: conversation.status,
             unreadStaffCount: conversation.unreadStaffCount,
           });
+          io.to('staff:support').emit('queue:updated');
         }
 
         if (callback) callback({ success: true, message: newMsg });
@@ -197,22 +210,44 @@ export const initSocket = (io) => {
         console.error('Socket send_message error:', err);
         if (callback) callback({ success: false, message: err.message });
       }
+    };
+
+    socket.on('send_message', handleSendMessage);
+    socket.on('chat:message', handleSendMessage);
+
+    // Typing Indicators (supports typing_start, typing_stop, and chat:typing)
+    socket.on('chat:typing', ({ conversationId, isTyping }) => {
+      const payload = {
+        conversationId,
+        userName: socket.user?.name || (socket.isStaff ? 'Support Agent' : 'Visitor'),
+        isStaff: socket.isStaff,
+      };
+      if (isTyping) {
+        socket.to(`conversation:${conversationId}`).emit('chat:user_typing', payload);
+        socket.to(`conversation:${conversationId}`).emit('user_typing', payload);
+      } else {
+        socket.to(`conversation:${conversationId}`).emit('chat:user_stop_typing', payload);
+        socket.to(`conversation:${conversationId}`).emit('user_stop_typing', payload);
+      }
     });
 
-    // Typing Indicators
     socket.on('typing_start', ({ conversationId }) => {
-      socket.to(`conversation:${conversationId}`).emit('user_typing', {
+      const payload = {
         conversationId,
-        userName: socket.user?.name || 'Visitor',
+        userName: socket.user?.name || (socket.isStaff ? 'Support Agent' : 'Visitor'),
         isStaff: socket.isStaff,
-      });
+      };
+      socket.to(`conversation:${conversationId}`).emit('chat:user_typing', payload);
+      socket.to(`conversation:${conversationId}`).emit('user_typing', payload);
     });
 
     socket.on('typing_stop', ({ conversationId }) => {
-      socket.to(`conversation:${conversationId}`).emit('user_stop_typing', {
+      const payload = {
         conversationId,
-        userName: socket.user?.name || 'Visitor',
-      });
+        userName: socket.user?.name || (socket.isStaff ? 'Support Agent' : 'Visitor'),
+      };
+      socket.to(`conversation:${conversationId}`).emit('chat:user_stop_typing', payload);
+      socket.to(`conversation:${conversationId}`).emit('user_stop_typing', payload);
     });
 
     // Read Receipt Marking

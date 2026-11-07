@@ -2,6 +2,8 @@ import express from 'express';
 import {
   getBranding,
   getTheme,
+  getFestivalThemes,
+  getThemePresets,
   getHomepage,
   getNavigation,
   getFooter,
@@ -25,6 +27,8 @@ router.get('/master-config', getMasterStorefrontConfig);
 // Branding & Theme
 router.get('/branding', optionalAuth, getBranding);
 router.get('/theme', optionalAuth, getTheme);
+router.get('/theme/festivals', getFestivalThemes);
+router.get('/theme/presets', getThemePresets);
 
 // Homepage Sections
 router.get('/homepage', optionalAuth, getHomepage);

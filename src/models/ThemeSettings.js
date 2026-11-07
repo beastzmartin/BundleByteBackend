@@ -5,7 +5,11 @@ const themeSettingsSchema = new mongoose.Schema(
     mode: {
       type: String,
       enum: ['light', 'dark', 'system'],
-      default: 'system',
+      default: 'light',
+    },
+    presetName: {
+      type: String,
+      default: 'clean_white', // 'modern', 'minimal', 'premium_dark', 'clean_white', 'custom'
     },
     palette: {
       primary: { type: String, default: '#4f46e5' },
@@ -55,10 +59,73 @@ const themeSettingsSchema = new mongoose.Schema(
       backgroundLight: { type: String, default: '#ffffff' },
       backgroundDark: { type: String, default: '#0f172a' },
     },
+    headerStyles: {
+      backgroundColor: { type: String, default: '#ffffff' },
+      textColor: { type: String, default: '#0f172a' },
+      borderColor: { type: String, default: '#e2e8f0' },
+      isSticky: { type: Boolean, default: true },
+    },
+    footerStyles: {
+      backgroundColor: { type: String, default: '#ffffff' },
+      textColor: { type: String, default: '#475569' },
+      borderColor: { type: String, default: '#e2e8f0' },
+    },
     layout: {
       containerMaxWidth: { type: String, default: '1280px' },
       contentPadding: { type: String, default: '1.5rem' },
       sectionSpacing: { type: String, default: '4rem' },
+    },
+    // Festival Theme System
+    festivalTheme: {
+      activeFestival: {
+        type: String,
+        default: null, // 'diwali', 'eid', 'christmas', 'new_year', 'holi', 'durga_puja', 'navratri', 'bihu', 'valentines', 'independence_day' or null
+      },
+      isScheduled: {
+        type: Boolean,
+        default: false,
+      },
+      startDate: {
+        type: Date,
+        default: null,
+      },
+      endDate: {
+        type: Date,
+        default: null,
+      },
+      autoReturn: {
+        type: Boolean,
+        default: true,
+      },
+      effectEnabled: {
+        type: Boolean,
+        default: true,
+      },
+      effectType: {
+        type: String,
+        default: 'diyas', // 'diyas', 'lanterns', 'snowfall', 'confetti', 'colors', 'patterns', 'sparkles', 'hearts', 'tricolor'
+      },
+      effectIntensity: {
+        type: String,
+        enum: ['low', 'medium', 'high'],
+        default: 'medium',
+      },
+      banner: {
+        enabled: { type: Boolean, default: true },
+        badge: { type: String, default: '' },
+        text: { type: String, default: '' },
+        bgGradient: { type: String, default: '' },
+        textColor: { type: String, default: '#ffffff' },
+        ctaText: { type: String, default: 'Shop Festive Deals' },
+        ctaUrl: { type: String, default: '/products' },
+      },
+      colors: {
+        primary: { type: String, default: '' },
+        secondary: { type: String, default: '' },
+        accent: { type: String, default: '' },
+        background: { type: String, default: '' },
+        surface: { type: String, default: '' },
+      },
     },
     customCss: {
       type: String,
@@ -83,4 +150,3 @@ const themeSettingsSchema = new mongoose.Schema(
 );
 
 export default mongoose.model('ThemeSettings', themeSettingsSchema);
-

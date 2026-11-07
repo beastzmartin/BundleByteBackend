@@ -2,6 +2,8 @@ import express from 'express';
 import {
   updateBranding,
   updateTheme,
+  getThemePresets,
+  resetThemeToDefault,
   getHomepage,
   updateHomepage,
   createHomepageSection,
@@ -50,6 +52,8 @@ router.use(protect);
 router.put('/branding', requireWebsitePermission('branding_manager'), updateBranding);
 
 // Theme & Appearance Management
+router.get('/theme/presets', requireWebsitePermission('branding_manager'), getThemePresets);
+router.post('/theme/reset', requireWebsitePermission('branding_manager'), resetThemeToDefault);
 router.put('/theme', requireWebsitePermission('branding_manager'), updateTheme);
 
 // Homepage Visual Management

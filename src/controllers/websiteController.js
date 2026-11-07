@@ -15,6 +15,7 @@ import WebsiteVersion from '../models/WebsiteVersion.js';
 import { websiteCache } from '../services/website/websiteCacheService.js';
 import { logWebsiteChange } from '../middleware/websitePermissions.js';
 import { sanitizeHtmlContent } from '../services/website/websiteSecurityService.js';
+import { STANDARD_THEME_PRESETS, FESTIVAL_THEMES } from '../constants/themePresets.js';
 
 // ==========================================
 // 1. BRANDING CONTROLLERS
@@ -102,10 +103,118 @@ export const updateBranding = async (req, res, next) => {
 // 2. THEME CONTROLLERS
 // ==========================================
 
+export const resolveActiveTheme = async (themeDoc, isPreview = false, previewFestivalId = null) => {
+  if (!themeDoc) return null;
+  const theme = themeDoc.toObject ? themeDoc.toObject() : { ...themeDoc };
+
+  if (isPreview && theme.draftData) {
+    Object.assign(theme, theme.draftData);
+  }
+
+  // Determine active festival
+  let activeFestivalId = previewFestivalId || theme.festivalTheme?.activeFestival;
+
+  if (activeFestivalId) {
+    // If not manual preview and festival is scheduled, verify timeline
+    if (!previewFestivalId && theme.festivalTheme?.isScheduled) {
+      const now = new Date();
+      const start = theme.festivalTheme.startDate ? new Date(theme.festivalTheme.startDate) : null;
+      const end = theme.festivalTheme.endDate ? new Date(theme.festivalTheme.endDate) : null;
+
+      if (start && now < start) {
+        // Not yet active
+        activeFestivalId = null;
+      } else if (end && now > end) {
+        // Expired
+        if (theme.festivalTheme.autoReturn) {
+          activeFestivalId = null;
+          // Auto-clean database state
+          try {
+            await ThemeSettings.findByIdAndUpdate(theme._id, {
+              'festivalTheme.activeFestival': null,
+              'festivalTheme.isScheduled': false,
+            });
+            websiteCache.clearAll();
+          } catch (e) {
+            console.error('Failed to auto-reset expired festival theme:', e);
+          }
+        }
+      }
+    }
+  }
+
+  if (activeFestivalId) {
+    const festivalDef = FESTIVAL_THEMES.find((f) => f.id === activeFestivalId);
+    if (festivalDef) {
+      theme.activeFestival = {
+        id: festivalDef.id,
+        name: festivalDef.name,
+        tagline: festivalDef.tagline,
+        icon: festivalDef.icon,
+        effectType: theme.festivalTheme?.effectType || festivalDef.effectType,
+        effectEnabled: theme.festivalTheme?.effectEnabled !== false,
+        effectIntensity: theme.festivalTheme?.effectIntensity || 'medium',
+        banner: {
+          enabled: theme.festivalTheme?.banner?.enabled !== false,
+          badge: theme.festivalTheme?.banner?.badge || festivalDef.banner.badge,
+          text: theme.festivalTheme?.banner?.text || festivalDef.banner.text,
+          bgGradient: theme.festivalTheme?.banner?.bgGradient || festivalDef.banner.bgGradient,
+          textColor: theme.festivalTheme?.banner?.textColor || festivalDef.banner.textColor,
+          ctaText: theme.festivalTheme?.banner?.ctaText || festivalDef.banner.ctaText,
+          ctaUrl: theme.festivalTheme?.banner?.ctaUrl || festivalDef.banner.ctaUrl,
+        },
+        colors: {
+          ...festivalDef.colors,
+          ...(theme.festivalTheme?.colors || {}),
+        },
+      };
+
+      // Dynamically override palette with festive colors for active tokens
+      theme.palette = {
+        ...theme.palette,
+        primary: theme.festivalTheme?.colors?.primary || festivalDef.colors.primary,
+        primaryHover: festivalDef.colors.primaryHover || festivalDef.colors.primary,
+        secondary: theme.festivalTheme?.colors?.secondary || festivalDef.colors.secondary,
+        accent: theme.festivalTheme?.colors?.accent || festivalDef.colors.accent,
+      };
+
+      if (theme.festivalTheme?.colors?.background || festivalDef.colors.background) {
+        theme.palette.backgroundLight = theme.festivalTheme?.colors?.background || festivalDef.colors.background;
+      }
+      if (theme.festivalTheme?.colors?.surface || festivalDef.colors.surface) {
+        theme.palette.surfaceLight = theme.festivalTheme?.colors?.surface || festivalDef.colors.surface;
+      }
+      if (theme.festivalTheme?.colors?.border || festivalDef.colors.border) {
+        theme.palette.borderLight = theme.festivalTheme?.colors?.border || festivalDef.colors.border;
+      }
+      if (theme.festivalTheme?.colors?.textPrimary || festivalDef.colors.textPrimary) {
+        theme.palette.textPrimaryLight = theme.festivalTheme?.colors?.textPrimary || festivalDef.colors.textPrimary;
+      }
+      if (theme.festivalTheme?.colors?.headerBg || festivalDef.colors.headerBg) {
+        theme.headerStyles = {
+          ...theme.headerStyles,
+          backgroundColor: theme.festivalTheme?.colors?.headerBg || festivalDef.colors.headerBg,
+        };
+      }
+      if (theme.festivalTheme?.colors?.footerBg || festivalDef.colors.footerBg) {
+        theme.footerStyles = {
+          ...theme.footerStyles,
+          backgroundColor: theme.festivalTheme?.colors?.footerBg || festivalDef.colors.footerBg,
+        };
+      }
+    }
+  } else {
+    theme.activeFestival = null;
+  }
+
+  return theme;
+};
+
 export const getTheme = async (req, res, next) => {
   try {
     const isPreview = req.query.preview === 'true' && req.user;
-    const cacheKey = isPreview ? 'theme_preview' : 'theme_published';
+    const previewFestivalId = req.query.previewFestival || null;
+    const cacheKey = isPreview ? `theme_preview_${previewFestivalId || 'none'}` : 'theme_published';
 
     if (!isPreview) {
       const cached = websiteCache.get(cacheKey);
@@ -117,16 +226,13 @@ export const getTheme = async (req, res, next) => {
       theme = await ThemeSettings.create({});
     }
 
-    let result = theme.toObject();
-    if (isPreview && theme.draftData) {
-      result = { ...result, ...theme.draftData };
-    }
+    const resolved = await resolveActiveTheme(theme, isPreview, previewFestivalId);
 
     if (!isPreview) {
-      websiteCache.set(cacheKey, result);
+      websiteCache.set(cacheKey, resolved, 5 * 60 * 1000);
     }
 
-    res.status(200).json({ success: true, theme: result });
+    res.status(200).json({ success: true, theme: resolved });
   } catch (error) {
     next(error);
   }
@@ -159,14 +265,104 @@ export const updateTheme = async (req, res, next) => {
       action: isDraft ? 'THEME_DRAFT_SAVED' : 'THEME_PUBLISHED',
       module: 'theme',
       entityId: theme._id,
-      description: isDraft ? 'Saved theme settings as draft' : 'Published updated theme and design tokens',
+      description: isDraft ? 'Saved theme settings as draft' : 'Published updated theme, festival and design tokens',
       changes: { before: previousState, after: theme.toObject() },
     });
 
+    const resolved = await resolveActiveTheme(theme);
+
     res.status(200).json({
       success: true,
-      message: isDraft ? 'Theme draft saved successfully' : 'Theme settings updated and applied',
-      theme,
+      message: isDraft ? 'Theme draft saved successfully' : 'Theme settings updated and applied live',
+      theme: resolved,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getThemePresets = async (req, res, next) => {
+  try {
+    res.status(200).json({
+      success: true,
+      standardPresets: STANDARD_THEME_PRESETS,
+      festivalThemes: FESTIVAL_THEMES,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getFestivalThemes = async (req, res, next) => {
+  try {
+    res.status(200).json({
+      success: true,
+      festivalThemes: FESTIVAL_THEMES,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const resetThemeToDefault = async (req, res, next) => {
+  try {
+    const defaultData = STANDARD_THEME_PRESETS.clean_white;
+    let theme = await ThemeSettings.findOne();
+    if (!theme) {
+      theme = await ThemeSettings.create({});
+    }
+    const previousState = theme.toObject();
+
+    theme.mode = defaultData.mode;
+    theme.presetName = defaultData.id;
+    theme.palette = defaultData.palette;
+    theme.typography = defaultData.typography;
+    theme.buttonStyles = defaultData.buttonStyles;
+    theme.cardStyles = defaultData.cardStyles;
+    theme.inputStyles = defaultData.inputStyles;
+    theme.headerStyles = defaultData.headerStyles;
+    theme.footerStyles = defaultData.footerStyles;
+    theme.festivalTheme = {
+      activeFestival: null,
+      isScheduled: false,
+      startDate: null,
+      endDate: null,
+      autoReturn: true,
+      effectEnabled: true,
+      effectType: 'diyas',
+      effectIntensity: 'medium',
+      banner: {
+        enabled: true,
+        badge: '',
+        text: '',
+        bgGradient: '',
+        textColor: '#ffffff',
+        ctaText: 'Shop Festive Deals',
+        ctaUrl: '/products',
+      },
+      colors: {},
+    };
+    theme.draftData = null;
+    theme.version = (theme.version || 1) + 1;
+
+    await theme.save();
+    websiteCache.clearAll();
+
+    await logWebsiteChange({
+      req,
+      action: 'THEME_RESET_TO_DEFAULT',
+      module: 'theme',
+      entityId: theme._id,
+      description: 'Reset theme to clean white default settings',
+      changes: { before: previousState, after: theme.toObject() },
+    });
+
+    const resolved = await resolveActiveTheme(theme);
+
+    res.status(200).json({
+      success: true,
+      message: 'Theme has been reset to default Clean White settings',
+      theme: resolved,
     });
   } catch (error) {
     next(error);
@@ -1281,9 +1477,11 @@ export const getMasterStorefrontConfig = async (req, res, next) => {
         Banner.find({ status: 'published' }).sort({ priority: -1 }),
       ]);
 
+    const resolvedTheme = await resolveActiveTheme(theme);
+
     const config = {
       branding: branding || {},
-      theme: theme || {},
+      theme: resolvedTheme || {},
       sections: sections || [],
       navigation: nav || {},
       footer: footer || {},
