@@ -1,5 +1,6 @@
 import express from 'express';
-import { protect, authorize } from '../middleware/auth.js';
+import { protect } from '../middleware/auth.js';
+import { authorize } from '../middleware/roles.js';
 import {
   getTaxConfig,
   updateTaxConfig,

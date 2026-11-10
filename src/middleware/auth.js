@@ -187,3 +187,6 @@ export const optionalProtect = async (req, res, next) => {
   } catch (err) {}
   next();
 };
+
+export { authorize } from './roles.js';
+
