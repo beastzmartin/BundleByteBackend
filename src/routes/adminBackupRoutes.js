@@ -42,3 +42,4 @@ router.post('/backup/import/validate', protect, authorize('admin'), upload.singl
 router.post('/backup/import/execute', protect, authorize('admin'), upload.single('file'), executeImport);
 
 export default router;
+
