@@ -189,7 +189,7 @@ export const commitAccountImport = async ({
     encryptedPassword: encryptCredential(acc.password.trim()),
     accountType: acc.accountType || 'Premium',
     plan: acc.plan || 'Annual',
-    loginUrl: acc.loginUrl || product.defaultAccessLink || '',
+    loginUrl: acc.loginUrl || product.accessLink || product.defaultAccessLink || '',
     expiresAt: acc.expiresAt || null,
     notes: acc.notes || '',
     status: 'Available',

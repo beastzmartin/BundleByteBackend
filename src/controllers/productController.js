@@ -102,6 +102,10 @@ export const getProducts = async (req, res, next) => {
       totalPages: Math.ceil(total / limitNum),
       currentPage: pageNum,
       products,
+      data: {
+        products,
+        total,
+      },
     });
   } catch (error) {
     next(error);

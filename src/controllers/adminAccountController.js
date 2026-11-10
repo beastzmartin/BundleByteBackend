@@ -16,6 +16,7 @@ export const getAccountInventory = async (req, res, next) => {
     const {
       status, // Available, Reserved, Sold, Disabled, Expired, or all
       productId,
+      product: queryProduct,
       search,
       page = 1,
       limit = 20,
@@ -27,8 +28,9 @@ export const getAccountInventory = async (req, res, next) => {
       query.status = status;
     }
 
-    if (productId && productId !== 'all') {
-      query.product = productId;
+    const targetProduct = productId || queryProduct;
+    if (targetProduct && targetProduct !== 'all') {
+      query.product = targetProduct;
     }
 
     if (search && search.trim()) {
@@ -129,7 +131,8 @@ export const getAccountDetails = async (req, res, next) => {
 export const createSingleAccount = async (req, res, next) => {
   try {
     const {
-      productId,
+      productId: bodyProductId,
+      product: bodyProduct,
       username,
       password,
       accountType = 'Premium',
@@ -139,6 +142,8 @@ export const createSingleAccount = async (req, res, next) => {
       notes,
       status = 'Available',
     } = req.body;
+
+    const productId = bodyProductId || bodyProduct;
 
     if (!productId || !username || !password) {
       return res.status(400).json({
@@ -152,10 +157,10 @@ export const createSingleAccount = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    // Check duplicate username for this product
+    // Check duplicate username for this product (case-insensitive)
     const existing = await AccountInventory.findOne({
       product: productId,
-      username: username.trim().toLowerCase(),
+      username: new RegExp(`^${username.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
     });
 
     if (existing) {
@@ -171,7 +176,7 @@ export const createSingleAccount = async (req, res, next) => {
       plainPassword: password.trim(),
       accountType,
       plan,
-      loginUrl: loginUrl || product.defaultAccessLink || '',
+      loginUrl: loginUrl || product.accessLink || product.defaultAccessLink || '',
       expiresAt: expiresAt ? new Date(expiresAt) : null,
       notes: notes || '',
       status,
@@ -200,7 +205,8 @@ export const createSingleAccount = async (req, res, next) => {
  */
 export const previewImport = async (req, res, next) => {
   try {
-    const { productId, content, delimiter } = req.body;
+    const { productId: bodyProductId, product: bodyProduct, content, delimiter } = req.body;
+    const productId = bodyProductId || bodyProduct;
 
     if (!productId || !content) {
       return res.status(400).json({
@@ -230,7 +236,8 @@ export const previewImport = async (req, res, next) => {
  */
 export const commitImport = async (req, res, next) => {
   try {
-    const { productId, accounts, fileName, sourceType, batchTag } = req.body;
+    const { productId: bodyProductId, product: bodyProduct, accounts, fileName, sourceType, batchTag } = req.body;
+    const productId = bodyProductId || bodyProduct;
 
     if (!productId || !Array.isArray(accounts) || accounts.length === 0) {
       return res.status(400).json({

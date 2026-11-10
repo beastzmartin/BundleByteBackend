@@ -11,7 +11,8 @@ export const getLinkInventory = async (req, res, next) => {
     const {
       status,
       linkType,
-      productId,
+      productId: queryProductId,
+      product: queryProduct,
       search,
       page = 1,
       limit = 20,
@@ -27,6 +28,7 @@ export const getLinkInventory = async (req, res, next) => {
       query.linkType = linkType;
     }
 
+    const productId = queryProductId || queryProduct;
     if (productId && productId !== 'all') {
       query.product = productId;
     }
@@ -95,7 +97,8 @@ export const getLinkInventory = async (req, res, next) => {
 export const addIndividualLink = async (req, res, next) => {
   try {
     const {
-      productId,
+      productId: bodyProductId,
+      product: bodyProduct,
       title,
       linkType = 'direct_download',
       url,
@@ -108,10 +111,12 @@ export const addIndividualLink = async (req, res, next) => {
       notes = '',
     } = req.body;
 
-    if (!productId || !url || !title) {
+    const productId = bodyProductId || bodyProduct;
+
+    if (!productId || !url) {
       return res.status(400).json({
         success: false,
-        message: 'Product ID, link title, and destination URL are required',
+        message: 'Product ID and destination URL are required',
       });
     }
 
@@ -132,19 +137,25 @@ export const addIndividualLink = async (req, res, next) => {
       });
     }
 
+    const finalTitle = title?.trim() || `${product.title} Access Link`;
+    const validLinkType = ['direct_download', 'activation_portal', 'workspace_invite', 'setup_guide', 'cloud_drive'].includes(linkType)
+      ? linkType
+      : 'direct_download';
+
     const link = await SoftwareLinkInventory.create({
       product: productId,
-      title: title.trim(),
-      linkType,
+      title: finalTitle,
+      linkType: validLinkType,
       url: url.trim(),
       backupUrl: backupUrl ? backupUrl.trim() : '',
       installationInstructions:
-        installationInstructions ||
+        installationInstructions?.trim() ||
+        product.activationProcess ||
         product.deliveryInstructions ||
         'Follow the instructions to redeem or install your software.',
       maxAccessCount: Number(maxAccessCount) || 0,
       expiryDate: expiryDate ? new Date(expiryDate) : null,
-      status,
+      status: ['Available', 'Reserved', 'Sold', 'Disabled', 'Expired'].includes(status) ? status : 'Available',
       batchId: batchId || `LINK-${Date.now().toString().slice(-4)}`,
       notes,
     });
@@ -156,7 +167,7 @@ export const addIndividualLink = async (req, res, next) => {
       action: 'SOFTWARE_LINK_ADDED',
       entity: 'SoftwareLinkInventory',
       entityId: link._id.toString(),
-      details: { productId, title: link.title, linkType },
+      details: { productId, title: link.title, linkType: link.linkType },
       req,
     });
 
@@ -172,11 +183,12 @@ export const addIndividualLink = async (req, res, next) => {
 
 /**
  * POST /api/admin/inventory/links/bulk-import
- * Bulk import software links from raw text, CSV or TSV lines
+ * Bulk import software links from raw text, CSV, TSV or pipe-separated lines
  */
 export const bulkImportLinks = async (req, res, next) => {
   try {
-    const { productId, fileContent, defaultLinkType = 'direct_download', batchId } = req.body;
+    const { productId: bodyProductId, product: bodyProduct, fileContent, defaultLinkType = 'direct_download', batchId } = req.body;
+    const productId = bodyProductId || bodyProduct;
 
     if (!productId) {
       return res.status(400).json({ success: false, message: 'Product ID is required' });
@@ -203,25 +215,29 @@ export const bulkImportLinks = async (req, res, next) => {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       // Skip header row if matches common CSV headers
-      if (i === 0 && (line.toLowerCase().includes('title') || line.toLowerCase().includes('url'))) {
+      if (i === 0 && (line.toLowerCase().includes('title,') || line.toLowerCase().includes('url,') || line.toLowerCase().includes('title|'))) {
         continue;
       }
 
-      // Format can be CSV: Title,URL,linkType,instructions OR simple URL per line
-      const parts = line.split(',').map((p) => p.trim());
+      // Check delimiter
+      let delimiter = ',';
+      if (line.includes('|')) delimiter = '|';
+      else if (line.includes('\t')) delimiter = '\t';
+
+      const parts = line.split(delimiter).map((p) => p.trim().replace(/^["']|["']$/g, ''));
       let title = '';
       let url = '';
       let type = defaultLinkType;
-      let instructions = product.deliveryInstructions || '';
+      let instructions = product.activationProcess || product.deliveryInstructions || '';
 
       if (parts.length >= 2 && (parts[1].startsWith('http') || parts[1].startsWith('/'))) {
         title = parts[0];
         url = parts[1];
         if (parts[2]) type = parts[2];
-        if (parts[3]) instructions = parts.slice(3).join(',');
+        if (parts[3]) instructions = parts.slice(3).join(delimiter);
       } else if (parts[0].startsWith('http') || parts[0].startsWith('/')) {
         url = parts[0];
-        title = `${product.title} Access Link ${i + 1}`;
+        title = parts[1] || `${product.title} Access Link ${i + 1}`;
       } else {
         title = parts[0];
         url = parts[1] || '';

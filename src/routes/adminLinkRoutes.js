@@ -6,13 +6,11 @@ import {
   updateLink,
   deleteLink,
 } from '../controllers/adminLinkController.js';
-import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { protect, adminOnly } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.use(protect);
-router.use(authorize('admin', 'manager', 'inventory_manager'));
+router.use(protect, adminOnly);
 
 router.get('/', getLinkInventory);
 router.post('/', addIndividualLink);
