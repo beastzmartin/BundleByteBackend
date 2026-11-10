@@ -10,10 +10,24 @@ import { logAudit } from '../middleware/audit.js';
  */
 export const getMyPurchasedProducts = async (req, res, next) => {
   try {
-    const deliveries = await DigitalDelivery.find({ user: req.user._id })
+    const isAll = req.query.all === 'true';
+    const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 5));
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = { user: req.user._id };
+    const total = await DigitalDelivery.countDocuments(query);
+
+    let deliveriesQuery = DigitalDelivery.find(query)
       .populate('order', 'orderNumber paymentStatus createdAt paymentMethod')
       .populate('product', 'title slug logo deliveryType deliveryMethod deliveryInstructions activationProcess orderNote activationSteps setupGuideUrl keyVisibilitySettings category')
       .sort({ deliveredAt: -1 });
+
+    if (!isAll) {
+      deliveriesQuery = deliveriesQuery.skip(skip).limit(limitNum);
+    }
+
+    const deliveries = await deliveriesQuery;
 
     const formatted = deliveries.map((d) => ({
       _id: d._id,
@@ -59,9 +73,15 @@ export const getMyPurchasedProducts = async (req, res, next) => {
       },
     }));
 
+    const totalPages = Math.ceil(total / limitNum);
+
     res.status(200).json({
       success: true,
       count: formatted.length,
+      total,
+      currentPage: pageNum,
+      totalPages,
+      hasMore: !isAll && pageNum < totalPages,
       products: formatted,
       deliveries: formatted,
     });

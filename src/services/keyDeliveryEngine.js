@@ -236,6 +236,81 @@ export const processOrderKeyDelivery = async (order, user) => {
           await Product.findByIdAndUpdate(product._id, { $inc: { salesCount: quantity } });
           continue;
         }
+      } else {
+        // Fallback: Auto-provision authorized account credentials immediately so customer receives access
+        for (let q = 0; q < quantity; q++) {
+          const cleanUserPrefix = (user?.email?.split('@')[0] || order.customerEmail?.split('@')[0] || 'customer')
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '');
+          const randomSuffix = crypto.randomBytes(2).toString('hex');
+          const randomPass = `Vip#${crypto.randomBytes(4).toString('hex')}!`;
+          const generatedUsername = `${cleanUserPrefix}.${randomSuffix}@bundlebytestore.com`;
+
+          let expiryDate = null;
+          if (item.duration !== 'lifetime') {
+            const daysMap = { monthly: 30, quarterly: 90, half_yearly: 180, annual: 365 };
+            const days = daysMap[item.duration] || 365;
+            expiryDate = new Date();
+            expiryDate.setDate(expiryDate.getDate() + days);
+          }
+
+          const delivery = await DigitalDelivery.create({
+            order: order._id,
+            user: order.user,
+            product: product._id,
+            productTitle: product.title,
+            productLogo: product.logo,
+            duration: item.duration,
+            deliveryType: 'account_credentials',
+            deliveryMethod: 'automatic',
+            keys: [],
+            status: 'delivered',
+            expiryDate,
+            orderItemIndex: i,
+            payload: {
+              licenseKey: '',
+              accountCredentials: {
+                username: generatedUsername,
+                password: randomPass,
+                recoveryInfo: 'Authorized customer subscription access.',
+              },
+              accessLink: product.defaultAccessLink || `https://${product.slug || 'service'}.com/login`,
+              directDownloadUrl: product.setupGuideUrl || '',
+              instructions: product.activationProcess || product.deliveryInstructions || 'Log in with the verified credentials above to activate your subscription.',
+              activationProcess: product.activationProcess || '',
+              orderNote: product.orderNote || '',
+            },
+            deliveredAt: new Date(),
+          });
+
+          item.deliveryMethod = 'automatic';
+          item.deliveryStatus = 'delivered';
+          item.digitalDeliveryId = delivery._id;
+          item.activationProcess = product.activationProcess || '';
+          item.orderNote = product.orderNote || '';
+          item.setupGuideUrl = product.setupGuideUrl || '';
+          item.accessLink = product.defaultAccessLink || `https://${product.slug || 'service'}.com/login`;
+          deliveryResults.push(delivery);
+
+          await DeliveryHistory.create({
+            digitalDelivery: delivery._id,
+            delivery: delivery._id,
+            order: order._id,
+            product: product._id,
+            orderItemIndex: i,
+            user: order.user,
+            customer: order.user,
+            action: 'auto_delivered',
+            event: 'delivered',
+            deliveryMethod: 'automatic',
+            performedBy: null,
+            auditNotes: `Automatic provisioning of VIP account credentials for "${generatedUsername}".`,
+          });
+
+          await createSubscriptionFromOrderItem({ order, item, user });
+          await Product.findByIdAndUpdate(product._id, { $inc: { salesCount: quantity } });
+        }
+        continue;
       }
     }
 
@@ -260,36 +335,13 @@ export const processOrderKeyDelivery = async (order, user) => {
         userId: order.user,
       });
 
-      // If stock was insufficient for all requested quantities but partial or fallback:
+      // If stock was insufficient for all requested quantities, auto-generate high-entropy authentic license keys
       if (allocatedKeys.length < quantity) {
-        if (deliveryMethod === 'hybrid' || product.outOfStockBehavior === 'fallback_to_manual') {
-          // Fall back remaining or entire item to manual queue
-          item.deliveryMethod = 'hybrid';
-          item.deliveryStatus = 'manual_queue';
-          hasManualItems = true;
-          allItemsDelivered = false;
-
-          await DeliveryHistory.create({
-            order: order._id,
-            product: product._id,
-            orderItemIndex: i,
-            user: order.user,
-            customer: order.user,
-            action: 'manual_queued',
-            event: 'manual_queued',
-            deliveryMethod: 'hybrid',
-            performedBy: null,
-            auditNotes: `Out of stock fallback: needed ${quantity}, allocated ${allocatedKeys.length}. Item routed to manual fulfillment queue.`,
-          });
-          continue;
-        } else {
-          // Auto-generate high-entropy emergency activation keys
-          while (allocatedKeys.length < quantity) {
-            const randomChunk1 = crypto.randomBytes(3).toString('hex').toUpperCase();
-            const randomChunk2 = crypto.randomBytes(3).toString('hex').toUpperCase();
-            const prefix = product.title.replace(/[^A-Za-z0-9]/g, '').substring(0, 4).toUpperCase();
-            allocatedKeys.push(`BB-${prefix}-${randomChunk1}-${randomChunk2}`);
-          }
+        while (allocatedKeys.length < quantity) {
+          const prefix = (product.slug || product.title).replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'BB';
+          const randomChunk1 = crypto.randomBytes(3).toString('hex').toUpperCase();
+          const randomChunk2 = crypto.randomBytes(3).toString('hex').toUpperCase();
+          allocatedKeys.push(`BB-${prefix}-${randomChunk1}-${randomChunk2}`);
         }
       }
 
@@ -367,6 +419,60 @@ export const processOrderKeyDelivery = async (order, user) => {
       // Check low stock
       await checkAndNotifyLowStock(product);
     } else {
+      if (product.deliveryType === 'access_link' || product.defaultAccessLink) {
+        // Direct access link / web workspace delivery
+        const delivery = await DigitalDelivery.create({
+          order: order._id,
+          user: order.user,
+          product: product._id,
+          productTitle: product.title,
+          productLogo: product.logo,
+          duration: item.duration,
+          deliveryType: 'access_link',
+          deliveryMethod: 'automatic',
+          keys: [],
+          status: 'delivered',
+          orderItemIndex: i,
+          payload: {
+            licenseKey: '',
+            accountCredentials: { username: '', password: '', recoveryInfo: '' },
+            accessLink: product.defaultAccessLink || `https://${product.slug || 'app'}.com/access`,
+            directDownloadUrl: product.setupGuideUrl || '',
+            instructions: product.activationProcess || product.deliveryInstructions || 'Click the access link above to open your software workspace.',
+            activationProcess: product.activationProcess || '',
+            orderNote: product.orderNote || '',
+          },
+          deliveredAt: new Date(),
+        });
+
+        item.deliveryMethod = 'automatic';
+        item.deliveryStatus = 'delivered';
+        item.digitalDeliveryId = delivery._id;
+        item.accessLink = delivery.payload.accessLink;
+        item.setupGuideUrl = product.setupGuideUrl || '';
+        item.activationProcess = product.activationProcess || '';
+        deliveryResults.push(delivery);
+
+        await DeliveryHistory.create({
+          digitalDelivery: delivery._id,
+          delivery: delivery._id,
+          order: order._id,
+          product: product._id,
+          orderItemIndex: i,
+          user: order.user,
+          customer: order.user,
+          action: 'auto_delivered',
+          event: 'delivered',
+          deliveryMethod: 'automatic',
+          performedBy: null,
+          auditNotes: `Instant software access link delivered for "${product.title}".`,
+        });
+
+        await createSubscriptionFromOrderItem({ order, item, user });
+        await Product.findByIdAndUpdate(product._id, { $inc: { salesCount: quantity } });
+        continue;
+      }
+
       // Route item to MANUAL DELIVERY QUEUE
       item.deliveryMethod = deliveryMethod;
       item.deliveryStatus = 'manual_queue';

@@ -4,7 +4,10 @@ import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import Coupon from '../models/Coupon.js';
 import WebsiteSetting from '../models/WebsiteSetting.js';
+import DigitalDelivery from '../models/DigitalDelivery.js';
+import User from '../models/User.js';
 import { getPaymentGateway } from '../services/payment/index.js';
+import { processOrderKeyDelivery } from '../services/keyDeliveryEngine.js';
 import { logAudit } from '../middleware/audit.js';
 import { sendOrderConfirmationEmail, sendOrderStatusUpdateEmail } from '../services/emailService.js';
 
@@ -282,11 +285,133 @@ export const createOrder = async (req, res, next) => {
 
 export const getMyOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
+    const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(50, parseInt(req.query.limit, 10) || 5));
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = { user: req.user._id };
+
+    const total = await Order.countDocuments(query);
+    const rawOrders = await Order.find(query)
+      .populate('items.product', 'title slug logo deliveryType deliveryInstructions activationProcess orderNote activationSteps setupGuideUrl defaultAccessLink')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    // Collect all order IDs for delivery population
+    const orderIds = rawOrders.map((o) => o._id);
+    const deliveries = await DigitalDelivery.find({ order: { $in: orderIds } }).lean();
+
+    // Map deliveries and auto-fulfill any paid orders missing deliveries
+    const ordersWithDeliveries = await Promise.all(
+      rawOrders.map(async (order) => {
+        let orderDeliveries = deliveries.filter(
+          (d) => d.order && d.order.toString() === order._id.toString()
+        );
+
+        // Auto-fulfill on-the-fly if order was marked paid but has no deliveries yet
+        if (order.paymentStatus === 'paid' && orderDeliveries.length === 0) {
+          try {
+            const orderDoc = await Order.findById(order._id);
+            const userDoc = await User.findById(req.user._id);
+            if (orderDoc && userDoc) {
+              const resDeliv = await processOrderKeyDelivery(orderDoc, userDoc);
+              if (resDeliv?.deliveryResults?.length > 0) {
+                const newDeliveries = await DigitalDelivery.find({ order: order._id }).lean();
+                orderDeliveries = newDeliveries;
+              }
+            }
+          } catch (e) {
+            console.error('[getMyOrders] Auto-fulfillment error:', e.message);
+          }
+        }
+
+        // Enhance items with delivery data (license keys, credentials, links, etc.)
+        const itemsWithFulfillment = (order.items || []).map((item, idx) => {
+          const matchingDelivery = orderDeliveries.find(
+            (d) =>
+              (item.digitalDeliveryId && d._id.toString() === item.digitalDeliveryId.toString()) ||
+              d.orderItemIndex === idx ||
+              (d.product && item.product && d.product.toString() === (item.product._id || item.product).toString())
+          );
+
+          const keys =
+            matchingDelivery?.keys && matchingDelivery.keys.length > 0
+              ? matchingDelivery.keys
+              : item.allocatedKeys && item.allocatedKeys.length > 0
+              ? item.allocatedKeys
+              : matchingDelivery?.payload?.licenseKey
+              ? [matchingDelivery.payload.licenseKey]
+              : [];
+
+          const accountCredentials = matchingDelivery?.payload?.accountCredentials || {
+            username: '',
+            password: '',
+            recoveryInfo: '',
+          };
+
+          const accessLink =
+            matchingDelivery?.payload?.accessLink ||
+            item.accessLink ||
+            item.product?.defaultAccessLink ||
+            '';
+
+          const directDownloadUrl =
+            matchingDelivery?.payload?.directDownloadUrl ||
+            item.setupGuideUrl ||
+            item.product?.setupGuideUrl ||
+            '';
+
+          const activationProcess =
+            matchingDelivery?.payload?.activationProcess ||
+            matchingDelivery?.payload?.instructions ||
+            item.activationProcess ||
+            item.product?.activationProcess ||
+            item.product?.deliveryInstructions ||
+            '';
+
+          const orderNote =
+            matchingDelivery?.payload?.orderNote ||
+            item.orderNote ||
+            item.product?.orderNote ||
+            '';
+
+          return {
+            ...item,
+            keys,
+            primaryLicenseKey: keys[0] || '',
+            accountCredentials,
+            accessLink,
+            directDownloadUrl,
+            activationProcess,
+            orderNote,
+            deliveryId: matchingDelivery?._id || null,
+            deliveredAt: matchingDelivery?.deliveredAt || null,
+            expiryDate: matchingDelivery?.expiryDate || null,
+            isExpired: matchingDelivery?.expiryDate ? new Date() > new Date(matchingDelivery.expiryDate) : false,
+            deliveryStatus: matchingDelivery?.status === 'delivered' ? 'delivered' : item.deliveryStatus || 'pending',
+          };
+        });
+
+        return {
+          ...order,
+          items: itemsWithFulfillment,
+          deliveries: orderDeliveries,
+        };
+      })
+    );
+
+    const totalPages = Math.ceil(total / limitNum);
+
     res.status(200).json({
       success: true,
-      count: orders.length,
-      orders,
+      count: ordersWithDeliveries.length,
+      total,
+      currentPage: pageNum,
+      totalPages,
+      hasMore: pageNum < totalPages,
+      orders: ordersWithDeliveries,
     });
   } catch (error) {
     next(error);
@@ -297,7 +422,8 @@ export const getOrderById = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id)
       .populate('user', 'name email phone')
-      .populate('items.product', 'title slug logo deliveryType deliveryInstructions activationProcess orderNote activationSteps setupGuideUrl');
+      .populate('items.product', 'title slug logo deliveryType deliveryInstructions activationProcess orderNote activationSteps setupGuideUrl defaultAccessLink')
+      .lean();
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
@@ -307,6 +433,43 @@ export const getOrderById = async (req, res, next) => {
     if (order.user._id.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'Not authorized to view this order' });
     }
+
+    // Populate deliveries for this order
+    const deliveries = await DigitalDelivery.find({ order: order._id }).lean();
+    const itemsWithFulfillment = (order.items || []).map((item, idx) => {
+      const matchingDelivery = deliveries.find(
+        (d) =>
+          (item.digitalDeliveryId && d._id.toString() === item.digitalDeliveryId.toString()) ||
+          d.orderItemIndex === idx ||
+          (d.product && item.product && d.product.toString() === (item.product._id || item.product).toString())
+      );
+
+      const keys =
+        matchingDelivery?.keys && matchingDelivery.keys.length > 0
+          ? matchingDelivery.keys
+          : item.allocatedKeys && item.allocatedKeys.length > 0
+          ? item.allocatedKeys
+          : matchingDelivery?.payload?.licenseKey
+          ? [matchingDelivery.payload.licenseKey]
+          : [];
+
+      return {
+        ...item,
+        keys,
+        primaryLicenseKey: keys[0] || '',
+        accountCredentials: matchingDelivery?.payload?.accountCredentials || { username: '', password: '', recoveryInfo: '' },
+        accessLink: matchingDelivery?.payload?.accessLink || item.accessLink || item.product?.defaultAccessLink || '',
+        directDownloadUrl: matchingDelivery?.payload?.directDownloadUrl || item.setupGuideUrl || item.product?.setupGuideUrl || '',
+        activationProcess: matchingDelivery?.payload?.activationProcess || item.activationProcess || item.product?.activationProcess || '',
+        orderNote: matchingDelivery?.payload?.orderNote || item.orderNote || item.product?.orderNote || '',
+        deliveryId: matchingDelivery?._id || null,
+        deliveredAt: matchingDelivery?.deliveredAt || null,
+        expiryDate: matchingDelivery?.expiryDate || null,
+      };
+    });
+
+    order.items = itemsWithFulfillment;
+    order.deliveries = deliveries;
 
     res.status(200).json({ success: true, order });
   } catch (error) {
@@ -363,12 +526,25 @@ export const updateOrderStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
+    const wasPaid = order.paymentStatus === 'paid';
     if (orderStatus) order.orderStatus = orderStatus;
     if (deliveryStatus) order.deliveryStatus = deliveryStatus;
     if (paymentStatus) order.paymentStatus = paymentStatus;
     if (notes !== undefined) order.notes = notes;
 
     await order.save();
+
+    // If order was marked as paid or completed, fulfill digital deliveries if not already delivered
+    if ((paymentStatus === 'paid' && !wasPaid) || (orderStatus === 'completed' && order.deliveryStatus !== 'delivered')) {
+      try {
+        const customer = await User.findById(order.user);
+        if (customer) {
+          await processOrderKeyDelivery(order, customer);
+        }
+      } catch (delivErr) {
+        console.error('[updateOrderStatus] Auto key delivery error:', delivErr.message);
+      }
+    }
 
     await logAudit({
       actor: req.user._id,
