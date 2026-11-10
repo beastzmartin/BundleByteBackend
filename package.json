@@ -13,6 +13,7 @@
     "test:telegram": "node src/scripts/testTelegramAuth.js",
     "test:rbac": "node src/scripts/testEnterpriseRBAC.js",
     "test:support": "node src/scripts/testUnifiedSupport.js",
+    "test:studio": "node src/scripts/testEmailTemplateStudio.js",
     "build": "echo 'Backend build complete'"
   },
   "dependencies": {

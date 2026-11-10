@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import WebsiteSetting from '../models/WebsiteSetting.js';
 import EmailTemplate from '../models/EmailTemplate.js';
 import EmailLog from '../models/EmailLog.js';
@@ -10,6 +11,21 @@ import { getAllProvidersSanitized, testProviderConnectivity } from '../services/
 import { getEmailAnalyticsData } from '../services/emailAnalyticsService.js';
 import { resendDeliveryNotification } from '../services/fulfillmentNotificationService.js';
 import { encryptCredential } from '../utils/credentialEncryption.js';
+import { compileTemplateWithMock, buildCrossClientEmailHtml, MOCK_CONTEXTS } from '../services/emailHtmlEngine.js';
+import { getDefaultTemplateByKey } from '../services/emailTemplateDefaults.js';
+
+/**
+ * Helper to resolve template by either ObjectId or templateKey
+ */
+const findTemplateByIdOrKey = async (idOrKey) => {
+  if (!idOrKey) return null;
+  const trimmed = String(idOrKey).trim();
+  if (mongoose.Types.ObjectId.isValid(trimmed)) {
+    const found = await EmailTemplate.findById(trimmed);
+    if (found) return found;
+  }
+  return await EmailTemplate.findOne({ key: trimmed.toLowerCase() });
+};
 
 /**
  * GET /api/admin/email/config
@@ -169,7 +185,7 @@ export const getEmailTemplates = async (req, res, next) => {
  */
 export const getEmailTemplateById = async (req, res, next) => {
   try {
-    const template = await EmailTemplate.findById(req.params.id);
+    const template = await findTemplateByIdOrKey(req.params.id);
     if (!template) {
       return res.status(404).json({ success: false, message: 'Email template not found' });
     }
@@ -185,8 +201,29 @@ export const getEmailTemplateById = async (req, res, next) => {
  */
 export const updateEmailTemplate = async (req, res, next) => {
   try {
-    const { subject, htmlBody, textBody, isActive, name } = req.body;
-    const template = await EmailTemplate.findById(req.params.id);
+    const {
+      subject,
+      htmlBody,
+      textBody,
+      previewText,
+      headerLogo,
+      headerLogoEnabled,
+      brandColor,
+      footerText,
+      headline,
+      greeting,
+      securityNotice,
+      productAccessBoxEnabled,
+      primaryButtonText,
+      primaryButtonUrl,
+      primaryButtonColor,
+      primaryButtonRadius,
+      visualSections,
+      isActive,
+      name,
+    } = req.body;
+
+    const template = await findTemplateByIdOrKey(req.params.id);
 
     if (!template) {
       return res.status(404).json({ success: false, message: 'Email template not found' });
@@ -195,6 +232,20 @@ export const updateEmailTemplate = async (req, res, next) => {
     if (subject !== undefined) template.subject = subject.trim();
     if (htmlBody !== undefined) template.htmlBody = htmlBody;
     if (textBody !== undefined) template.textBody = textBody;
+    if (previewText !== undefined) template.previewText = previewText.trim();
+    if (headerLogo !== undefined) template.headerLogo = headerLogo.trim();
+    if (headerLogoEnabled !== undefined) template.headerLogoEnabled = Boolean(headerLogoEnabled);
+    if (brandColor !== undefined) template.brandColor = brandColor.trim();
+    if (footerText !== undefined) template.footerText = footerText;
+    if (headline !== undefined) template.headline = headline;
+    if (greeting !== undefined) template.greeting = greeting;
+    if (securityNotice !== undefined) template.securityNotice = securityNotice;
+    if (productAccessBoxEnabled !== undefined) template.productAccessBoxEnabled = Boolean(productAccessBoxEnabled);
+    if (primaryButtonText !== undefined) template.primaryButtonText = primaryButtonText;
+    if (primaryButtonUrl !== undefined) template.primaryButtonUrl = primaryButtonUrl;
+    if (primaryButtonColor !== undefined) template.primaryButtonColor = primaryButtonColor;
+    if (primaryButtonRadius !== undefined) template.primaryButtonRadius = primaryButtonRadius;
+    if (visualSections !== undefined) template.visualSections = visualSections;
     if (isActive !== undefined) template.isActive = isActive;
     if (name !== undefined) template.name = name.trim();
 
@@ -389,17 +440,29 @@ export const sendBulkAnnouncement = async (req, res, next) => {
  */
 export const saveTemplateDraft = async (req, res, next) => {
   try {
-    const { draftSubject, draftHtmlBody, draftTextBody } = req.body;
-    const template = await EmailTemplate.findById(req.params.id);
+    const {
+      draftSubject,
+      draftHtmlBody,
+      draftTextBody,
+      draftPreviewText,
+      draftBrandColor,
+      draftVisualSections,
+    } = req.body;
+
+    const template = await findTemplateByIdOrKey(req.params.id);
     if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
 
-    template.draftSubject = draftSubject || template.subject;
-    template.draftHtmlBody = draftHtmlBody || template.htmlBody;
-    template.draftTextBody = draftTextBody !== undefined ? draftTextBody : template.textBody;
+    template.draftSubject = draftSubject !== undefined ? draftSubject : (template.draftSubject || template.subject);
+    template.draftHtmlBody = draftHtmlBody !== undefined ? draftHtmlBody : (template.draftHtmlBody || template.htmlBody);
+    template.draftTextBody = draftTextBody !== undefined ? draftTextBody : (template.draftTextBody || template.textBody);
+    if (draftPreviewText !== undefined) template.draftPreviewText = draftPreviewText;
+    if (draftBrandColor !== undefined) template.draftBrandColor = draftBrandColor;
+    if (draftVisualSections !== undefined) template.draftVisualSections = draftVisualSections;
     template.hasDraft = true;
+
     await template.save();
 
-    res.status(200).json({ success: true, message: 'Template draft saved', template });
+    res.status(200).json({ success: true, message: 'Template draft saved successfully', template });
   } catch (error) {
     next(error);
   }
@@ -411,7 +474,7 @@ export const saveTemplateDraft = async (req, res, next) => {
  */
 export const publishTemplate = async (req, res, next) => {
   try {
-    const template = await EmailTemplate.findById(req.params.id);
+    const template = await findTemplateByIdOrKey(req.params.id);
     if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
 
     if (!template.versionHistory) template.versionHistory = [];
@@ -420,24 +483,47 @@ export const publishTemplate = async (req, res, next) => {
       subject: template.subject,
       htmlBody: template.htmlBody,
       textBody: template.textBody,
+      previewText: template.previewText || '',
+      brandColor: template.brandColor || '#4f46e5',
+      visualSections: template.visualSections || null,
       savedAt: new Date(),
       savedBy: req.user.name || req.user.email,
     });
 
-    if (template.hasDraft && template.draftSubject) {
-      template.subject = template.draftSubject;
-      template.htmlBody = template.draftHtmlBody;
+    if (template.hasDraft) {
+      if (template.draftSubject) template.subject = template.draftSubject;
+      if (template.draftHtmlBody) template.htmlBody = template.draftHtmlBody;
       if (template.draftTextBody) template.textBody = template.draftTextBody;
+      if (template.draftPreviewText !== undefined) template.previewText = template.draftPreviewText;
+      if (template.draftBrandColor !== undefined) template.brandColor = template.draftBrandColor;
+      if (template.draftVisualSections !== undefined) template.visualSections = template.draftVisualSections;
     }
 
     template.version = (template.version || 1) + 1;
     template.hasDraft = false;
+    template.draftSubject = '';
+    template.draftHtmlBody = '';
+    template.draftTextBody = '';
+    template.draftPreviewText = '';
+    template.draftBrandColor = '';
+    template.draftVisualSections = null;
     template.publishedAt = new Date();
     await template.save();
 
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'EMAIL_TEMPLATE_PUBLISHED',
+      entity: 'EmailTemplate',
+      entityId: template._id.toString(),
+      details: { templateKey: template.key, newVersion: template.version },
+      req,
+    });
+
     res.status(200).json({
       success: true,
-      message: `Template published as version v${template.version}`,
+      message: `Template published live as version v${template.version}`,
       template,
     });
   } catch (error) {
@@ -452,7 +538,7 @@ export const publishTemplate = async (req, res, next) => {
 export const revertTemplateVersion = async (req, res, next) => {
   try {
     const { targetVersion } = req.body;
-    const template = await EmailTemplate.findById(req.params.id);
+    const template = await findTemplateByIdOrKey(req.params.id);
     if (!template) return res.status(404).json({ success: false, message: 'Template not found' });
 
     const historical = (template.versionHistory || []).find((v) => v.version === Number(targetVersion));
@@ -463,10 +549,206 @@ export const revertTemplateVersion = async (req, res, next) => {
     template.subject = historical.subject;
     template.htmlBody = historical.htmlBody;
     template.textBody = historical.textBody || '';
+    if (historical.previewText !== undefined) template.previewText = historical.previewText;
+    if (historical.brandColor !== undefined) template.brandColor = historical.brandColor;
+    if (historical.visualSections !== undefined) template.visualSections = historical.visualSections;
     template.hasDraft = false;
     await template.save();
 
-    res.status(200).json({ success: true, message: `Reverted to version v${targetVersion}`, template });
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'EMAIL_TEMPLATE_REVERTED',
+      entity: 'EmailTemplate',
+      entityId: template._id.toString(),
+      details: { templateKey: template.key, revertedToVersion: targetVersion },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Template reverted to version v${targetVersion}`,
+      template,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/admin/email/templates/:id/send-test
+ * Dispatch live test template to specified or logged-in admin email
+ */
+export const sendTestTemplateEmail = async (req, res, next) => {
+  try {
+    const {
+      recipientEmail,
+      subjectOverride,
+      htmlBodyOverride,
+      mockContextType = 'jetbrains',
+      useDraft = false,
+    } = req.body;
+
+    const template = await findTemplateByIdOrKey(req.params.id);
+    if (!template) {
+      return res.status(404).json({ success: false, message: 'Template not found' });
+    }
+
+    const targetEmail = recipientEmail ? recipientEmail.trim() : req.user.email;
+    if (!targetEmail || !targetEmail.includes('@')) {
+      return res.status(400).json({ success: false, message: 'Valid recipient email address is required' });
+    }
+
+    // Determine subject and HTML based on whether admin requested draft or live content
+    let effectiveSubject = subjectOverride;
+    let effectiveHtml = htmlBodyOverride;
+
+    if (!effectiveSubject) {
+      effectiveSubject = (useDraft && template.hasDraft && template.draftSubject)
+        ? template.draftSubject
+        : template.subject;
+    }
+
+    if (!effectiveHtml) {
+      effectiveHtml = (useDraft && template.hasDraft && template.draftHtmlBody)
+        ? template.draftHtmlBody
+        : template.htmlBody;
+    }
+
+    // Compile with mock data
+    const compiled = compileTemplateWithMock({
+      template,
+      subjectOverride: effectiveSubject,
+      htmlOverride: effectiveHtml,
+      mockContextType,
+    });
+
+    const startTime = Date.now();
+    const result = await executeEmailSend({
+      to: targetEmail,
+      subject: `[TEST] ${compiled.subject}`,
+      html: compiled.html,
+      text: `BundleByte Test Delivery: ${compiled.subject}`,
+      fromName: req.user.name || undefined,
+    });
+    const latencyMs = Date.now() - startTime;
+
+    // Log test delivery in EmailLog with status: 'test_delivery'
+    const testLog = await EmailLog.create({
+      recipient: targetEmail,
+      recipientName: req.user.name || 'Admin',
+      templateKey: template.key,
+      category: template.category || 'system',
+      subject: `[TEST] ${compiled.subject}`,
+      htmlContent: compiled.html,
+      textContent: `BundleByte Test Delivery: ${compiled.subject}`,
+      provider: result.provider || 'smtp',
+      messageId: result.messageId || `test-${Date.now()}`,
+      status: 'test_delivery',
+      sentAt: new Date(),
+      metadata: {
+        isTestDelivery: true,
+        mockContextType,
+        latencyMs,
+        useDraft: Boolean(useDraft),
+        sentBy: req.user._id,
+        adminEmail: req.user.email,
+      },
+    });
+
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'EMAIL_TEST_DISPATCHED',
+      entity: 'EmailTemplate',
+      entityId: template._id.toString(),
+      details: {
+        templateKey: template.key,
+        recipient: targetEmail,
+        provider: result.provider,
+        latencyMs,
+        mockContextType,
+      },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Test email dispatched to ${targetEmail} via ${result.provider.toUpperCase()} (${latencyMs}ms)!`,
+      messageId: result.messageId,
+      provider: result.provider,
+      latencyMs,
+      recipient: targetEmail,
+      compiledSubject: compiled.subject,
+      logId: testLog._id,
+    });
+  } catch (error) {
+    console.error('Test email send error:', error);
+    res.status(400).json({
+      success: false,
+      message: `Test email delivery failed: ${error.message}`,
+    });
+  }
+};
+
+/**
+ * POST /api/admin/email/templates/:id/reset
+ * Restore template to its factory default layout
+ */
+export const resetTemplateToDefault = async (req, res, next) => {
+  try {
+    const template = await findTemplateByIdOrKey(req.params.id);
+    if (!template) {
+      return res.status(404).json({ success: false, message: 'Template not found' });
+    }
+
+    const defaultTpl = getDefaultTemplateByKey(template.key);
+    if (!defaultTpl) {
+      return res.status(400).json({
+        success: false,
+        message: `No default template found for key "${template.key}"`,
+      });
+    }
+
+    template.subject = defaultTpl.subject;
+    template.htmlBody = defaultTpl.htmlBody;
+    template.textBody = defaultTpl.textBody || '';
+    template.previewText = defaultTpl.previewText || '';
+    template.brandColor = defaultTpl.brandColor || '#4f46e5';
+    template.headerLogoEnabled = defaultTpl.headerLogoEnabled ?? true;
+    template.visualSections = defaultTpl.visualSections || null;
+    template.primaryButtonText = defaultTpl.primaryButtonText || '';
+    template.primaryButtonUrl = defaultTpl.primaryButtonUrl || '';
+    template.footerText = defaultTpl.footerText || '';
+    template.variables = defaultTpl.variables || [];
+    template.hasDraft = false;
+    template.draftSubject = '';
+    template.draftHtmlBody = '';
+    template.draftTextBody = '';
+    template.draftPreviewText = '';
+    template.draftBrandColor = '';
+    template.draftVisualSections = null;
+
+    await template.save();
+
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'EMAIL_TEMPLATE_RESET',
+      entity: 'EmailTemplate',
+      entityId: template._id.toString(),
+      details: { templateKey: template.key },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Template "${template.name}" restored to factory default layout!`,
+      template,
+    });
   } catch (error) {
     next(error);
   }

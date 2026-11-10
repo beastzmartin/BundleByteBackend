@@ -9,6 +9,8 @@ import {
   saveTemplateDraft,
   publishTemplate,
   revertTemplateVersion,
+  sendTestTemplateEmail,
+  resetTemplateToDefault,
   getEmailProviders,
   saveEmailProvider,
   testEmailProvider,
@@ -42,6 +44,8 @@ router.put('/templates/:id', updateEmailTemplate);
 router.post('/templates/:id/draft', saveTemplateDraft);
 router.post('/templates/:id/publish', publishTemplate);
 router.post('/templates/:id/revert', revertTemplateVersion);
+router.post('/templates/:id/send-test', sendTestTemplateEmail);
+router.post('/templates/:id/reset', resetTemplateToDefault);
 
 // Analytics
 router.get('/analytics', getEmailAnalytics);

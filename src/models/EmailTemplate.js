@@ -46,9 +46,33 @@ const emailTemplateSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    headerLogoEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    brandColor: {
+      type: String,
+      default: '#4f46e5',
+    },
     footerText: {
       type: String,
       default: '',
+    },
+    headline: {
+      type: String,
+      default: '',
+    },
+    greeting: {
+      type: String,
+      default: '',
+    },
+    securityNotice: {
+      type: String,
+      default: '',
+    },
+    productAccessBoxEnabled: {
+      type: Boolean,
+      default: false,
     },
     primaryButtonText: {
       type: String,
@@ -57,6 +81,18 @@ const emailTemplateSchema = new mongoose.Schema(
     primaryButtonUrl: {
       type: String,
       default: '',
+    },
+    primaryButtonColor: {
+      type: String,
+      default: '#4f46e5',
+    },
+    primaryButtonRadius: {
+      type: String,
+      default: '8px',
+    },
+    visualSections: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     version: {
       type: Number,
@@ -78,6 +114,18 @@ const emailTemplateSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    draftPreviewText: {
+      type: String,
+      default: '',
+    },
+    draftBrandColor: {
+      type: String,
+      default: '',
+    },
+    draftVisualSections: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     publishedAt: {
       type: Date,
       default: Date.now,
@@ -88,6 +136,9 @@ const emailTemplateSchema = new mongoose.Schema(
         subject: String,
         htmlBody: String,
         textBody: String,
+        previewText: String,
+        brandColor: String,
+        visualSections: mongoose.Schema.Types.Mixed,
         savedAt: { type: Date, default: Date.now },
         savedBy: { type: String, default: 'admin' },
       },
