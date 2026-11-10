@@ -189,6 +189,9 @@ export const commitAccountImport = async ({
     encryptedPassword: encryptCredential(acc.password.trim()),
     accountType: acc.accountType || 'Premium',
     plan: acc.plan || 'Annual',
+    planType: acc.planType || acc.plan || 'any',
+    planId: acc.planId || '',
+    validityDuration: acc.validityDuration || { value: 0, unit: '' },
     loginUrl: acc.loginUrl || product.accessLink || product.defaultAccessLink || '',
     expiresAt: acc.expiresAt || null,
     notes: acc.notes || '',
@@ -207,25 +210,102 @@ export const commitAccountImport = async ({
 };
 
 /**
- * Atomically allocate an available account for a product during order processing
+ * Atomically allocate an available account for a product during order processing,
+ * prioritizing stock matching the customer's chosen plan/duration validity.
  */
-export const allocateAccountAtomically = async ({ productId, orderId, userId }) => {
-  // Find an available account and atomically mark as Sold
-  const account = await AccountInventory.findOneAndUpdate(
-    {
-      product: productId,
-      status: 'Available',
-    },
-    {
-      $set: {
-        status: 'Sold',
-        allocatedToOrder: orderId,
-        allocatedToUser: userId,
-        allocatedAt: new Date(),
+export const allocateAccountAtomically = async ({
+  productId,
+  orderId,
+  userId,
+  duration = '',
+  planName = '',
+  durationValue = 0,
+  durationUnit = '',
+}) => {
+  let account = null;
+
+  // 1. First Priority: Try to match exact plan / duration
+  if (duration || planName) {
+    const planConditions = [];
+    if (duration) {
+      planConditions.push({ plan: new RegExp(`^${duration}$`, 'i') });
+      planConditions.push({ planType: new RegExp(`^${duration}$`, 'i') });
+      planConditions.push({ planId: duration });
+    }
+    if (planName) {
+      planConditions.push({ plan: new RegExp(`^${planName}$`, 'i') });
+      planConditions.push({ planType: new RegExp(`^${planName}$`, 'i') });
+    }
+    if (durationValue > 0 && durationUnit) {
+      planConditions.push({
+        'validityDuration.value': durationValue,
+        'validityDuration.unit': durationUnit,
+      });
+    }
+
+    if (planConditions.length > 0) {
+      account = await AccountInventory.findOneAndUpdate(
+        {
+          product: productId,
+          status: 'Available',
+          $or: planConditions,
+        },
+        {
+          $set: {
+            status: 'Sold',
+            allocatedToOrder: orderId,
+            allocatedToUser: userId,
+            allocatedAt: new Date(),
+          },
+        },
+        { new: true }
+      );
+    }
+  }
+
+  // 2. Second Priority: Match universal / 'any' plan inventory
+  if (!account) {
+    account = await AccountInventory.findOneAndUpdate(
+      {
+        product: productId,
+        status: 'Available',
+        $or: [
+          { plan: { $regex: /^(any|universal|standard)$/i } },
+          { planType: { $regex: /^(any|universal|standard)$/i } },
+          { plan: null },
+          { plan: '' },
+        ],
       },
-    },
-    { new: true }
-  );
+      {
+        $set: {
+          status: 'Sold',
+          allocatedToOrder: orderId,
+          allocatedToUser: userId,
+          allocatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+  }
+
+  // 3. Third Priority: Fall back to any available account for this product
+  if (!account) {
+    account = await AccountInventory.findOneAndUpdate(
+      {
+        product: productId,
+        status: 'Available',
+      },
+      {
+        $set: {
+          status: 'Sold',
+          allocatedToOrder: orderId,
+          allocatedToUser: userId,
+          allocatedAt: new Date(),
+        },
+      },
+      { new: true }
+    );
+  }
 
   if (!account) return null;
 
@@ -239,7 +319,7 @@ export const allocateAccountAtomically = async ({ productId, orderId, userId }) 
     encryptedPassword: account.encryptedPassword,
     loginUrl: account.loginUrl,
     accountType: account.accountType,
-    plan: account.plan,
+    plan: account.plan || planName || duration,
     notes: account.notes,
     deliveredAt: new Date(),
   });

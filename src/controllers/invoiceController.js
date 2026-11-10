@@ -258,6 +258,9 @@ export const getInvoiceDesignerSettings = async (req, res) => {
       showLicenseKeyPreview: true,
       showHsnSac: true,
       showGstBreakdown: true,
+      showWarrantySection: true,
+      warrantyText: 'Includes Official 14-Day Replacement Warranty • 24/7 Concierge Support',
+      showOrderValidity: true,
       defaultPlaceOfSupply: 'Karnataka (29)',
       termsText:
         '1. Genuine perpetual licenses and account credentials reside in your encrypted customer vault.\n2. Sale is subject to standard terms of service & 14-day replacement warranty.\n3. This is a computer-generated tax invoice and requires no physical signature.',

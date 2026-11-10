@@ -15,9 +15,17 @@ const licenseInventorySchema = new mongoose.Schema(
     },
     durationType: {
       type: String,
-      enum: ['any', 'monthly', 'quarterly', 'half_yearly', 'annual', 'lifetime'],
       default: 'any',
       index: true,
+    },
+    planId: {
+      type: String,
+      default: '',
+      index: true,
+    },
+    validityDuration: {
+      value: { type: Number, default: 0 },
+      unit: { type: String, enum: ['hours', 'days', 'weeks', 'months', 'years', 'lifetime', ''], default: '' },
     },
     licenseKey: {
       type: String,

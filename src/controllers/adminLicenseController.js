@@ -116,6 +116,8 @@ export const addIndividualLicense = async (req, res, next) => {
     const {
       productId,
       durationType = 'annual',
+      planId = '',
+      validityDuration = { value: 0, unit: '' },
       licenseKey,
       accountCredentials = {},
       accessLink = '',
@@ -149,6 +151,8 @@ export const addIndividualLicense = async (req, res, next) => {
     const license = await LicenseInventory.create({
       product: productId,
       durationType,
+      planId: planId || durationType,
+      validityDuration: validityDuration || { value: 0, unit: '' },
       licenseKey: licenseKey.trim(),
       accountCredentials: {
         username: accountCredentials.username || '',

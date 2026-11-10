@@ -32,6 +32,14 @@ const digitalDeliverySchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    validityText: {
+      type: String,
+      default: '',
+    },
+    isLifetime: {
+      type: Boolean,
+      default: false,
+    },
     deliveryType: {
       type: String,
       enum: [
@@ -61,6 +69,10 @@ const digitalDeliverySchema = new mongoose.Schema(
       default: 0,
     },
     expiryDate: {
+      type: Date,
+      default: null,
+    },
+    accessExpiresAt: {
       type: Date,
       default: null,
     },

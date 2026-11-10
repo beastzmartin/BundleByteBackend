@@ -66,6 +66,9 @@ export const generateInvoicePdfBuffer = (invoice, invoiceConfig = {}) => {
     showLicenseKeyPreview: true,
     showHsnSac: true,
     showGstBreakdown: true,
+    showWarrantySection: true,
+    warrantyText: 'Includes Official 14-Day Replacement Warranty • 24/7 Concierge Support',
+    showOrderValidity: true,
     termsText:
       '1. Genuine perpetual licenses and account credentials reside in your encrypted customer vault.\n2. Sale is subject to standard terms of service & 14-day replacement warranty.\n3. This is a computer-generated tax invoice and requires no physical signature.',
     footerNote:
@@ -328,8 +331,8 @@ export const generateInvoicePdfBuffer = (invoice, invoiceConfig = {}) => {
     streamLines.push(`40 ${rowBottom} ${width - 80} ${rowHeight} re B`);
     streamLines.push('Q');
 
-    const title = escapePdfText(item.productTitle || 'Digital License Product').substring(0, 40);
-    const duration = escapePdfText(item.duration || 'Annual');
+    const title = escapePdfText(item.productTitle || 'Digital License Product').substring(0, 36);
+    const duration = escapePdfText(item.validityText || item.planName || item.duration || 'Annual');
     const hsnSac = config.showHsnSac ? (item.hsnSac || '998434') : '-';
     const qty = String(item.quantity || 1);
     const unitPrice = `${currencySymbol} ${(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
@@ -561,8 +564,22 @@ export const generateInvoicePdfBuffer = (invoice, invoiceConfig = {}) => {
     termY -= 12;
   }
 
+  // Warranty & Guarantee Note (if enabled)
+  if (config.showWarrantySection !== false) {
+    const warrantyMsg = escapePdfText(
+      config.warrantyText || 'Includes Official 14-Day Replacement Warranty • 24/7 Concierge Support'
+    ).substring(0, 68);
+    streamLines.push('BT');
+    streamLines.push('/F2 7.5 Tf');
+    streamLines.push('0.05 0.59 0.41 rg'); // Emerald green
+    streamLines.push(`${termsLeft} ${termY} Td`);
+    streamLines.push(`([GUARANTEE] ${warrantyMsg}) Tj`);
+    streamLines.push('ET');
+    termY -= 12;
+  }
+
   // Authenticity & Verification Token
-  termY -= 4;
+  termY -= 2;
   streamLines.push('BT');
   streamLines.push('/F2 7.5 Tf');
   streamLines.push(`${accentR} ${accentG} ${accentB} rg`);

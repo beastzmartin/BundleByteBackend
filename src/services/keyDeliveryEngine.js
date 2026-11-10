@@ -3,6 +3,7 @@ import Product from '../models/Product.js';
 import Order from '../models/Order.js';
 import DigitalDelivery from '../models/DigitalDelivery.js';
 import LicenseInventory from '../models/LicenseInventory.js';
+import SoftwareLinkInventory from '../models/SoftwareLinkInventory.js';
 import DeliveryHistory from '../models/DeliveryHistory.js';
 import Notification from '../models/Notification.js';
 import User from '../models/User.js';
@@ -23,12 +24,16 @@ export const allocateKeysAtomically = async ({ productId, duration, quantity = 1
   const inventoryIds = [];
 
   for (let q = 0; q < quantity; q++) {
-    // Atomically find one available key and transition status to 'Sold'
-    const keyDoc = await LicenseInventory.findOneAndUpdate(
+    // 1. Try matching the exact requested duration or plan ID
+    let keyDoc = await LicenseInventory.findOneAndUpdate(
       {
         product: productId,
         status: 'Available',
-        $or: [{ durationType: duration }, { durationType: 'any' }],
+        $or: [
+          { durationType: duration },
+          { planId: duration },
+          { durationType: new RegExp(`^${duration}$`, 'i') },
+        ],
       },
       {
         $set: {
@@ -40,6 +45,26 @@ export const allocateKeysAtomically = async ({ productId, duration, quantity = 1
       },
       { new: true }
     );
+
+    // 2. Fallback to universal 'any' duration keys
+    if (!keyDoc) {
+      keyDoc = await LicenseInventory.findOneAndUpdate(
+        {
+          product: productId,
+          status: 'Available',
+          $or: [{ durationType: 'any' }, { durationType: null }, { durationType: '' }],
+        },
+        {
+          $set: {
+            status: 'Sold',
+            allocatedToOrder: orderId,
+            allocatedToUser: userId,
+            allocatedAt: new Date(),
+          },
+        },
+        { new: true }
+      );
+    }
 
     if (keyDoc) {
       allocatedKeys.push(keyDoc.licenseKey);
@@ -161,6 +186,10 @@ export const processOrderKeyDelivery = async (order, user) => {
             productId: product._id,
             orderId: order._id,
             userId: order.user,
+            duration: item.duration,
+            planName: item.planName,
+            durationValue: item.durationValue,
+            durationUnit: item.durationUnit,
           });
           if (res) allocatedAccounts.push(res);
         }
@@ -170,8 +199,8 @@ export const processOrderKeyDelivery = async (order, user) => {
           const acc = primary.account;
           const decryptedPass = primary.decryptedPassword;
 
-          let expiryDate = acc.expiresAt || null;
-          if (!expiryDate && item.duration !== 'lifetime') {
+          let expiryDate = acc.expiresAt || item.accessExpiresAt || null;
+          if (!expiryDate && item.duration !== 'lifetime' && !item.isLifetime) {
             const daysMap = { monthly: 30, quarterly: 90, half_yearly: 180, annual: 365 };
             const days = daysMap[item.duration] || 365;
             expiryDate = new Date();
@@ -185,11 +214,14 @@ export const processOrderKeyDelivery = async (order, user) => {
             productTitle: product.title,
             productLogo: product.logo,
             duration: item.duration,
+            validityText: item.validityText || item.planName || item.duration,
+            isLifetime: !!item.isLifetime || item.duration === 'lifetime',
             deliveryType: 'account_credentials',
             deliveryMethod: 'automatic',
             keys: [],
             status: 'delivered',
-            expiryDate,
+            expiryDate: item.accessExpiresAt || expiryDate,
+            accessExpiresAt: item.accessExpiresAt || expiryDate,
             orderItemIndex: i,
             payload: {
               licenseKey: '',
@@ -261,11 +293,14 @@ export const processOrderKeyDelivery = async (order, user) => {
             productTitle: product.title,
             productLogo: product.logo,
             duration: item.duration,
+            validityText: item.validityText || item.planName || item.duration,
+            isLifetime: !!item.isLifetime || item.duration === 'lifetime',
             deliveryType: 'account_credentials',
             deliveryMethod: 'automatic',
             keys: [],
             status: 'delivered',
-            expiryDate,
+            expiryDate: item.accessExpiresAt || expiryDate,
+            accessExpiresAt: item.accessExpiresAt || expiryDate,
             orderItemIndex: i,
             payload: {
               licenseKey: '',
@@ -346,11 +381,11 @@ export const processOrderKeyDelivery = async (order, user) => {
       }
 
       // Compute expiry date if applicable
-      let expiryDate = null;
-      if (product.keyExpiryDays && product.keyExpiryDays > 0) {
+      let expiryDate = item.accessExpiresAt || null;
+      if (!expiryDate && product.keyExpiryDays && product.keyExpiryDays > 0) {
         expiryDate = new Date();
         expiryDate.setDate(expiryDate.getDate() + product.keyExpiryDays);
-      } else if (item.duration !== 'lifetime') {
+      } else if (!expiryDate && item.duration !== 'lifetime' && !item.isLifetime) {
         const daysMap = { monthly: 30, quarterly: 90, half_yearly: 180, annual: 365 };
         const days = daysMap[item.duration] || 365;
         expiryDate = new Date();
@@ -365,11 +400,14 @@ export const processOrderKeyDelivery = async (order, user) => {
         productTitle: product.title,
         productLogo: product.logo,
         duration: item.duration,
+        validityText: item.validityText || item.planName || item.duration,
+        isLifetime: !!item.isLifetime || item.duration === 'lifetime',
         deliveryType: product.deliveryType,
         deliveryMethod: 'automatic',
         keys: allocatedKeys,
         status: 'delivered',
-        expiryDate,
+        expiryDate: item.accessExpiresAt || expiryDate,
+        accessExpiresAt: item.accessExpiresAt || expiryDate,
         orderItemIndex: i,
         payload: {
           licenseKey: allocatedKeys.join(', '),
@@ -420,7 +458,89 @@ export const processOrderKeyDelivery = async (order, user) => {
       await checkAndNotifyLowStock(product);
     } else {
       if (product.deliveryType === 'access_link' || product.defaultAccessLink) {
-        // Direct access link / web workspace delivery
+        // Direct access link / web workspace delivery - Check SoftwareLinkInventory first
+        let allocatedLink = null;
+
+        // 1. First priority: Try to match exact plan / duration
+        if (item.duration || item.planName) {
+          allocatedLink = await SoftwareLinkInventory.findOneAndUpdate(
+            {
+              product: product._id,
+              status: 'Available',
+              $or: [
+                { planType: item.duration },
+                { planType: item.planName },
+                { planId: item.duration },
+                { planType: new RegExp(`^${item.duration}$`, 'i') },
+              ],
+            },
+            {
+              $set: {
+                status: 'Sold',
+                allocatedToOrder: order._id,
+                allocatedToUser: order.user,
+                allocatedAt: new Date(),
+              },
+              $inc: { currentAccessCount: 1 },
+            },
+            { new: true }
+          );
+        }
+
+        // 2. Second priority: Match universal / 'any' plan links
+        if (!allocatedLink) {
+          allocatedLink = await SoftwareLinkInventory.findOneAndUpdate(
+            {
+              product: product._id,
+              status: 'Available',
+              $or: [{ planType: 'any' }, { planType: 'universal' }, { planType: null }, { planType: '' }],
+            },
+            {
+              $set: {
+                status: 'Sold',
+                allocatedToOrder: order._id,
+                allocatedToUser: order.user,
+                allocatedAt: new Date(),
+              },
+              $inc: { currentAccessCount: 1 },
+            },
+            { new: true }
+          );
+        }
+
+        // 3. Third priority: Any available link for this product
+        if (!allocatedLink) {
+          allocatedLink = await SoftwareLinkInventory.findOneAndUpdate(
+            {
+              product: product._id,
+              status: 'Available',
+            },
+            {
+              $set: {
+                status: 'Sold',
+                allocatedToOrder: order._id,
+                allocatedToUser: order.user,
+                allocatedAt: new Date(),
+              },
+              $inc: { currentAccessCount: 1 },
+            },
+            { new: true }
+          );
+        }
+
+        const deliveredUrl =
+          allocatedLink?.url ||
+          product.defaultAccessLink ||
+          `https://${product.slug || 'app'}.com/access`;
+
+        const deliveredInstructions =
+          allocatedLink?.installationInstructions ||
+          product.activationProcess ||
+          product.deliveryInstructions ||
+          'Click the access link above to open your software workspace.';
+
+        const linkExpiry = allocatedLink?.expiryDate || item.accessExpiresAt || null;
+
         const delivery = await DigitalDelivery.create({
           order: order._id,
           user: order.user,
@@ -428,17 +548,21 @@ export const processOrderKeyDelivery = async (order, user) => {
           productTitle: product.title,
           productLogo: product.logo,
           duration: item.duration,
+          validityText: item.validityText || item.planName || item.duration,
+          isLifetime: !!item.isLifetime || item.duration === 'lifetime',
           deliveryType: 'access_link',
           deliveryMethod: 'automatic',
           keys: [],
           status: 'delivered',
+          expiryDate: linkExpiry,
+          accessExpiresAt: linkExpiry,
           orderItemIndex: i,
           payload: {
             licenseKey: '',
             accountCredentials: { username: '', password: '', recoveryInfo: '' },
-            accessLink: product.defaultAccessLink || `https://${product.slug || 'app'}.com/access`,
-            directDownloadUrl: product.setupGuideUrl || '',
-            instructions: product.activationProcess || product.deliveryInstructions || 'Click the access link above to open your software workspace.',
+            accessLink: deliveredUrl,
+            directDownloadUrl: allocatedLink?.backupUrl || product.setupGuideUrl || '',
+            instructions: deliveredInstructions,
             activationProcess: product.activationProcess || '',
             orderNote: product.orderNote || '',
           },
@@ -448,8 +572,8 @@ export const processOrderKeyDelivery = async (order, user) => {
         item.deliveryMethod = 'automatic';
         item.deliveryStatus = 'delivered';
         item.digitalDeliveryId = delivery._id;
-        item.accessLink = delivery.payload.accessLink;
-        item.setupGuideUrl = product.setupGuideUrl || '';
+        item.accessLink = deliveredUrl;
+        item.setupGuideUrl = allocatedLink?.backupUrl || product.setupGuideUrl || '';
         item.activationProcess = product.activationProcess || '';
         deliveryResults.push(delivery);
 
@@ -618,12 +742,15 @@ export const fulfillManualDelivery = async ({
     productTitle: item.productTitle,
     productLogo: item.productLogo || (product ? product.logo : ''),
     duration: item.duration,
+    validityText: item.validityText || item.planName || item.duration,
+    isLifetime: !!item.isLifetime || item.duration === 'lifetime',
     deliveryType: 'admin_assisted',
     deliveryMethod: 'manual',
     deliveredBy: adminUser._id,
     keys: normalizedKeys,
     status: 'delivered',
-    expiryDate,
+    expiryDate: item.accessExpiresAt || expiryDate,
+    accessExpiresAt: item.accessExpiresAt || expiryDate,
     orderItemIndex: itemIndex,
     adminNotes: deliveryNotes,
     payload: {

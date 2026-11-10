@@ -9,6 +9,26 @@ const pricingTierSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const customPlanSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true }, // e.g. "24_hours", "7_days", or a unique plan slug
+    name: { type: String, required: true }, // e.g. "24 Hours Access", "7 Days VIP Trial"
+    durationValue: { type: Number, required: true, default: 24 }, // e.g. 24, 7, 3
+    durationUnit: {
+      type: String,
+      enum: ['hours', 'days', 'weeks', 'months', 'years'],
+      default: 'days',
+    },
+    price: { type: Number, required: true, default: 0 },
+    originalPrice: { type: Number, default: 0 },
+    badge: { type: String, default: '' }, // e.g. "TRIAL", "POPULAR", "24H PASS"
+    description: { type: String, default: '' },
+    enabled: { type: Boolean, default: true },
+    isDefault: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     title: {
@@ -192,9 +212,13 @@ const productSchema = new mongoose.Schema(
       annual: { type: pricingTierSchema, default: () => ({ enabled: true, price: 149.99, originalPrice: 239.99 }) },
       lifetime: { type: pricingTierSchema, default: () => ({ enabled: false, price: 299.99, originalPrice: 499.99 }) },
     },
+    // Custom validity plans (e.g. 12 Hours, 24 Hours, 3 Days, 7 Days, etc.)
+    customPlans: {
+      type: [customPlanSchema],
+      default: [],
+    },
     defaultDuration: {
       type: String,
-      enum: ['monthly', 'quarterly', 'half_yearly', 'annual', 'lifetime'],
       default: 'annual',
     },
 

@@ -18,6 +18,20 @@ const softwareLinkInventorySchema = new mongoose.Schema(
       required: [true, 'Link title or label is required'],
       trim: true,
     },
+    planType: {
+      type: String,
+      default: 'any', // Matches durationType or custom plan id (e.g. '24_hours', '7_days', 'any')
+      index: true,
+    },
+    planId: {
+      type: String,
+      default: '',
+      index: true,
+    },
+    validityDuration: {
+      value: { type: Number, default: 0 },
+      unit: { type: String, enum: ['hours', 'days', 'weeks', 'months', 'years', 'lifetime', ''], default: '' },
+    },
     linkType: {
       type: String,
       enum: [

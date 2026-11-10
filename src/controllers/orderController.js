@@ -106,7 +106,25 @@ export const createOrder = async (req, res, next) => {
       }
 
       const duration = rawItem.duration || product.defaultDuration || 'annual';
-      let tier = product.pricing?.[duration];
+      let tier = null;
+      let matchedCustomPlan = null;
+
+      // Check if duration matches a custom plan (by id or name)
+      if (Array.isArray(product.customPlans) && product.customPlans.length > 0) {
+        matchedCustomPlan = product.customPlans.find(
+          (cp) => cp && (cp.id === duration || cp.name === duration || cp.id === rawItem.planId || cp.name === rawItem.planName)
+        );
+      }
+
+      if (matchedCustomPlan && matchedCustomPlan.enabled) {
+        tier = {
+          price: matchedCustomPlan.price,
+          originalPrice: matchedCustomPlan.originalPrice || matchedCustomPlan.price,
+          enabled: true,
+        };
+      } else {
+        tier = product.pricing?.[duration];
+      }
 
       if (!tier || !tier.enabled) {
         // Fallback: try annual or any enabled tier
@@ -126,6 +144,75 @@ export const createOrder = async (req, res, next) => {
         }
       }
 
+      // Compute validity duration and access expiration
+      let planName = rawItem.planName || '';
+      let durationValue = Number(rawItem.durationValue) || 0;
+      let durationUnit = rawItem.durationUnit || '';
+      let validityText = rawItem.validityText || '';
+      let accessExpiresAt = null;
+      let isLifetime = false;
+
+      if (matchedCustomPlan) {
+        planName = matchedCustomPlan.name;
+        durationValue = matchedCustomPlan.durationValue;
+        durationUnit = matchedCustomPlan.durationUnit;
+        validityText = matchedCustomPlan.name || `${durationValue} ${durationUnit} Access`;
+
+        const now = Date.now();
+        if (durationUnit === 'hours') {
+          accessExpiresAt = new Date(now + durationValue * 3600 * 1000);
+        } else if (durationUnit === 'days') {
+          accessExpiresAt = new Date(now + durationValue * 86400 * 1000);
+        } else if (durationUnit === 'weeks') {
+          accessExpiresAt = new Date(now + durationValue * 7 * 86400 * 1000);
+        } else if (durationUnit === 'months') {
+          accessExpiresAt = new Date(now + durationValue * 30 * 86400 * 1000);
+        } else if (durationUnit === 'years') {
+          accessExpiresAt = new Date(now + durationValue * 365 * 86400 * 1000);
+        }
+      } else {
+        const now = Date.now();
+        if (duration === 'monthly') {
+          durationValue = 1;
+          durationUnit = 'months';
+          validityText = '1 Month Access';
+          accessExpiresAt = new Date(now + 30 * 86400 * 1000);
+        } else if (duration === 'quarterly') {
+          durationValue = 3;
+          durationUnit = 'months';
+          validityText = '3 Months Access';
+          accessExpiresAt = new Date(now + 90 * 86400 * 1000);
+        } else if (duration === 'half_yearly') {
+          durationValue = 6;
+          durationUnit = 'months';
+          validityText = '6 Months Access';
+          accessExpiresAt = new Date(now + 180 * 86400 * 1000);
+        } else if (duration === 'annual') {
+          durationValue = 1;
+          durationUnit = 'years';
+          validityText = '1 Year Access';
+          accessExpiresAt = new Date(now + 365 * 86400 * 1000);
+        } else if (duration === 'lifetime') {
+          durationValue = 99;
+          durationUnit = 'years';
+          validityText = 'Lifetime Perpetual Access';
+          isLifetime = true;
+          accessExpiresAt = null;
+        } else {
+          // If custom duration was passed in rawItem
+          if (durationUnit === 'hours') {
+            accessExpiresAt = new Date(now + (durationValue || 24) * 3600 * 1000);
+            validityText = validityText || `${durationValue || 24} Hours Access`;
+          } else if (durationUnit === 'days') {
+            accessExpiresAt = new Date(now + (durationValue || 7) * 86400 * 1000);
+            validityText = validityText || `${durationValue || 7} Days Access`;
+          } else {
+            validityText = validityText || duration.replace(/_/g, ' ');
+            accessExpiresAt = new Date(now + 365 * 86400 * 1000);
+          }
+        }
+      }
+
       const unitPrice = tier.price;
       const quantity = Math.max(1, parseInt(rawItem.quantity || 1, 10));
       const totalPrice = parseFloat((unitPrice * quantity).toFixed(2));
@@ -138,6 +225,12 @@ export const createOrder = async (req, res, next) => {
         productLogo: product.logo || '',
         productCategoryName: product.subCategory || 'Software',
         duration,
+        planName,
+        durationValue,
+        durationUnit,
+        validityText,
+        accessExpiresAt,
+        isLifetime,
         variantName: rawItem.variantName || 'Standard Edition',
         unitPrice,
         quantity,

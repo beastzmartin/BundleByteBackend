@@ -15,6 +15,12 @@ const invoiceItemSchema = new mongoose.Schema({
   totalPrice: { type: Number, required: true },
   deliveryType: { type: String, default: 'instant_automated' },
   duration: { type: String, default: 'annual' },
+  planName: { type: String, default: '' },
+  validityText: { type: String, default: '' },
+  accessExpiresAt: { type: Date, default: null },
+  durationValue: { type: Number, default: 0 },
+  durationUnit: { type: String, default: '' },
+  isLifetime: { type: Boolean, default: false },
   productAccessLink: { type: String, default: '' },
   setupGuideUrl: { type: String, default: '' },
   vaultUrl: { type: String, default: '' },
@@ -155,6 +161,14 @@ const invoiceSchema = new mongoose.Schema(
     terms: {
       type: String,
       default: 'Digital product sales are subject to our terms of service and standard refund policy.',
+    },
+    showWarrantySection: {
+      type: Boolean,
+      default: true,
+    },
+    warrantyText: {
+      type: String,
+      default: 'Includes Official 14-Day Replacement Warranty • 24/7 Concierge Support',
     },
     downloadCount: {
       type: Number,

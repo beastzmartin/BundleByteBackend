@@ -101,6 +101,9 @@ export const addIndividualLink = async (req, res, next) => {
       product: bodyProduct,
       title,
       linkType = 'direct_download',
+      planType = 'any',
+      planId = '',
+      validityDuration = { value: 0, unit: '' },
       url,
       backupUrl = '',
       installationInstructions,
@@ -146,6 +149,9 @@ export const addIndividualLink = async (req, res, next) => {
       product: productId,
       title: finalTitle,
       linkType: validLinkType,
+      planType: planType || 'any',
+      planId: planId || '',
+      validityDuration: validityDuration || { value: 0, unit: '' },
       url: url.trim(),
       backupUrl: backupUrl ? backupUrl.trim() : '',
       installationInstructions:
@@ -187,7 +193,16 @@ export const addIndividualLink = async (req, res, next) => {
  */
 export const bulkImportLinks = async (req, res, next) => {
   try {
-    const { productId: bodyProductId, product: bodyProduct, fileContent, defaultLinkType = 'direct_download', batchId } = req.body;
+    const {
+      productId: bodyProductId,
+      product: bodyProduct,
+      fileContent,
+      defaultLinkType = 'direct_download',
+      defaultPlanType = 'any',
+      defaultPlanId = '',
+      validityDuration = { value: 0, unit: '' },
+      batchId,
+    } = req.body;
     const productId = bodyProductId || bodyProduct;
 
     if (!productId) {
@@ -262,6 +277,9 @@ export const bulkImportLinks = async (req, res, next) => {
         linkType: ['direct_download', 'activation_portal', 'workspace_invite', 'setup_guide', 'cloud_drive'].includes(type)
           ? type
           : defaultLinkType,
+        planType: defaultPlanType || 'any',
+        planId: defaultPlanId || '',
+        validityDuration: validityDuration || { value: 0, unit: '' },
         installationInstructions: instructions,
         status: 'Available',
         batchId: effectiveBatch,
@@ -309,6 +327,9 @@ export const updateLink = async (req, res, next) => {
     const {
       title,
       linkType,
+      planType,
+      planId,
+      validityDuration,
       url,
       backupUrl,
       installationInstructions,
@@ -325,6 +346,9 @@ export const updateLink = async (req, res, next) => {
 
     if (title) link.title = title.trim();
     if (linkType) link.linkType = linkType;
+    if (planType !== undefined) link.planType = planType;
+    if (planId !== undefined) link.planId = planId;
+    if (validityDuration !== undefined) link.validityDuration = validityDuration;
     if (url) link.url = url.trim();
     if (backupUrl !== undefined) link.backupUrl = backupUrl.trim();
     if (installationInstructions !== undefined) link.installationInstructions = installationInstructions;

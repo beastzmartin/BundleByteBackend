@@ -26,7 +26,20 @@ const accountInventorySchema = new mongoose.Schema(
     },
     plan: {
       type: String,
-      default: 'Annual', // e.g. Monthly, Quarterly, Annual, Lifetime
+      default: 'Annual', // e.g. Monthly, Quarterly, Annual, Lifetime, or Custom Name (e.g. 24 Hours)
+    },
+    planType: {
+      type: String,
+      default: 'any', // Matches durationType or custom plan id (e.g. '24_hours', '7_days', 'any')
+      index: true,
+    },
+    planId: {
+      type: String,
+      default: '',
+    },
+    validityDuration: {
+      value: { type: Number, default: 0 },
+      unit: { type: String, enum: ['hours', 'days', 'weeks', 'months', 'years', 'lifetime', ''], default: '' },
     },
     loginUrl: {
       type: String,

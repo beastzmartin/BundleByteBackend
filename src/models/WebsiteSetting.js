@@ -106,6 +106,12 @@ const websiteSettingSchema = new mongoose.Schema(
       showLicenseKeyPreview: { type: Boolean, default: true },
       showHsnSac: { type: Boolean, default: true },
       showGstBreakdown: { type: Boolean, default: true },
+      showWarrantySection: { type: Boolean, default: true },
+      warrantyText: {
+        type: String,
+        default: 'Includes Official 14-Day Replacement Warranty • Dedicated 24/7 Concierge Support',
+      },
+      showOrderValidity: { type: Boolean, default: true },
       defaultPlaceOfSupply: { type: String, default: 'Karnataka (29)' },
       termsText: {
         type: String,

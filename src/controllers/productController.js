@@ -231,6 +231,23 @@ export const createProduct = async (req, res, next) => {
     const { title, slug } = req.body;
     const finalSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
 
+    if (Array.isArray(req.body.customPlans)) {
+      req.body.customPlans = req.body.customPlans
+        .filter((cp) => cp && cp.name && cp.durationValue)
+        .map((cp, idx) => ({
+          id: cp.id || `plan_${cp.durationValue}_${cp.durationUnit || 'days'}_${idx}`,
+          name: cp.name.trim(),
+          durationValue: Number(cp.durationValue) || 1,
+          durationUnit: cp.durationUnit || 'days',
+          price: Number(cp.price) || 0,
+          originalPrice: Number(cp.originalPrice) || 0,
+          badge: cp.badge || '',
+          description: cp.description || '',
+          enabled: cp.enabled !== false,
+          isDefault: !!cp.isDefault,
+        }));
+    }
+
     const product = await Product.create({
       ...req.body,
       slug: finalSlug,
@@ -255,6 +272,23 @@ export const createProduct = async (req, res, next) => {
 
 export const updateProduct = async (req, res, next) => {
   try {
+    if (Array.isArray(req.body.customPlans)) {
+      req.body.customPlans = req.body.customPlans
+        .filter((cp) => cp && cp.name && cp.durationValue)
+        .map((cp, idx) => ({
+          id: cp.id || `plan_${cp.durationValue}_${cp.durationUnit || 'days'}_${idx}`,
+          name: cp.name.trim(),
+          durationValue: Number(cp.durationValue) || 1,
+          durationUnit: cp.durationUnit || 'days',
+          price: Number(cp.price) || 0,
+          originalPrice: Number(cp.originalPrice) || 0,
+          badge: cp.badge || '',
+          description: cp.description || '',
+          enabled: cp.enabled !== false,
+          isDefault: !!cp.isDefault,
+        }));
+    }
+
     const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
       runValidators: true,
