@@ -257,6 +257,89 @@ export const updatePassword = async (req, res, next) => {
 };
 
 /**
+ * PUT /api/auth/updateemail
+ * Update user or admin primary email with password verification
+ */
+export const updateEmail = async (req, res, next) => {
+  try {
+    const { newEmail, currentPassword } = req.body;
+
+    if (!newEmail || !newEmail.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid new email address',
+      });
+    }
+
+    const cleanEmail = newEmail.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email format',
+      });
+    }
+
+    const user = await User.findById(req.user.id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.email.toLowerCase() === cleanEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'New email address must be different from current email',
+      });
+    }
+
+    // Verify current password if user has password
+    if (user.password) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current password is required to change your account email',
+        });
+      }
+      const isMatch = await user.matchPassword(currentPassword);
+      if (!isMatch) {
+        return res.status(400).json({
+          success: false,
+          message: 'Current password is incorrect',
+        });
+      }
+    }
+
+    // Check if new email is already taken
+    const existing = await User.findOne({ email: cleanEmail });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: 'This email address is already registered to another account',
+      });
+    }
+
+    const oldEmail = user.email;
+    user.email = cleanEmail;
+    await user.save();
+
+    await logAudit({
+      actor: user._id,
+      actorEmail: oldEmail,
+      actorRole: user.role,
+      action: 'EMAIL_UPDATED',
+      entity: 'User',
+      entityId: user._id.toString(),
+      metadata: { oldEmail, newEmail: cleanEmail },
+      req,
+    }).catch(() => {});
+
+    sendTokenResponse(user, 200, res, `Account email updated successfully to ${cleanEmail}`);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * POST /api/auth/forgot-password
  * Send secure password reset link
  */

@@ -6,6 +6,7 @@ import {
   getMe,
   updateProfile,
   updatePassword,
+  updateEmail,
   forgotPassword,
   resetPassword,
   verifyEmail,
@@ -52,6 +53,7 @@ router.post('/team-invitation/accept', authLimiter, acceptInvitation);
 router.get('/me', protect, getMe);
 router.put('/profile', protect, updateProfile);
 router.put('/updatepassword', protect, updatePassword);
+router.put('/updateemail', protect, updateEmail);
 router.post('/google/link', protect, linkGoogle);
 router.delete('/google/unlink', protect, unlinkGoogle);
 router.post('/telegram/link', protect, linkTelegram);

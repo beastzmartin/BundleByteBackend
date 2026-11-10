@@ -56,6 +56,7 @@ import supportAnalyticsRoutes from './routes/supportAnalyticsRoutes.js';
 import cronRoutes from './routes/cronRoutes.js';
 import customPaymentRoutes from './routes/customPaymentRoutes.js';
 import systemRoutes from './routes/systemRoutes.js';
+import adminBackupRoutes from './routes/adminBackupRoutes.js';
 
 const app = express();
 
@@ -291,6 +292,7 @@ app.use('/api', customPaymentRoutes);
 
 // Advanced Cache & Storage System Manager
 app.use('/api/admin', systemRoutes);
+app.use('/api/admin', adminBackupRoutes);
 app.use('/api/admin/support', supportAnalyticsRoutes);
 
 // Automated Vercel / External Cron Routes

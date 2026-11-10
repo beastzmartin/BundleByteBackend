@@ -40,3 +40,4 @@ router.post('/admin/payment-requests/:id/reject', protect, authorize('admin'), r
 router.put('/admin/payment-requests/:id', protect, authorize('admin'), updatePaymentRequest);
 
 export default router;
+

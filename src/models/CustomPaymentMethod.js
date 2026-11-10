@@ -113,3 +113,4 @@ const customPaymentMethodSchema = new mongoose.Schema(
 customPaymentMethodSchema.index({ isActive: 1, displayOrder: 1 });
 
 export default mongoose.model('CustomPaymentMethod', customPaymentMethodSchema);
+
