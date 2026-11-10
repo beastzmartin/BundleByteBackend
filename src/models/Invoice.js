@@ -15,6 +15,11 @@ const invoiceItemSchema = new mongoose.Schema({
   totalPrice: { type: Number, required: true },
   deliveryType: { type: String, default: 'instant_automated' },
   duration: { type: String, default: 'annual' },
+  productAccessLink: { type: String, default: '' },
+  setupGuideUrl: { type: String, default: '' },
+  vaultUrl: { type: String, default: '' },
+  licenseKey: { type: String, default: '' },
+  activationSteps: { type: String, default: '' },
   // GST breakdown for this item
   hsnSac: { type: String, default: '998434' },
   taxRate: { type: Number, default: 18 },
@@ -163,6 +168,10 @@ const invoiceSchema = new mongoose.Schema(
       type: String,
       default: '',
       index: true,
+    },
+    invoiceConfigSnapshot: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
   },
   {

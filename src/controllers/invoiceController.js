@@ -1,6 +1,7 @@
 import Invoice from '../models/Invoice.js';
 import CreditNote from '../models/CreditNote.js';
 import Order from '../models/Order.js';
+import WebsiteSetting from '../models/WebsiteSetting.js';
 import {
   getOrCreateInvoiceForOrder,
   getInvoicePdf,
@@ -226,6 +227,241 @@ export const issueCreditNoteAdmin = async (req, res) => {
       success: true,
       message: `Credit Note #${creditNote.creditNoteNumber} issued successfully`,
       creditNote,
+      invoice,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Customer / Public / Admin: Get current Invoice Designer settings
+ */
+export const getInvoiceDesignerSettings = async (req, res) => {
+  try {
+    const settings = await WebsiteSetting.findOne().select('invoiceConfig');
+    const invoiceConfig = settings?.invoiceConfig || {
+      companyName: 'BundleByte Technologies Pvt Ltd',
+      businessAddress: '100 Innovation Boulevard, Tech Park, Bangalore 560001',
+      supportEmail: 'billing@bundlebyte.com',
+      supportPhone: '+91 80 4000 1234',
+      gstin: '29ABCDE1234F1Z5',
+      websiteUrl: 'https://bundlebyte.com',
+      invoiceTitle: 'TAX INVOICE',
+      invoicePrefix: 'INV',
+      accentColor: '#4f46e5',
+      secondaryColor: '#0f172a',
+      logoUrl: '',
+      showLogo: true,
+      showAccessLinks: true,
+      accessButtonLabel: 'Access Product & Vault',
+      showLicenseKeyPreview: true,
+      showHsnSac: true,
+      showGstBreakdown: true,
+      defaultPlaceOfSupply: 'Karnataka (29)',
+      termsText:
+        '1. Genuine perpetual licenses and account credentials reside in your encrypted customer vault.\n2. Sale is subject to standard terms of service & 14-day replacement warranty.\n3. This is a computer-generated tax invoice and requires no physical signature.',
+      footerNote:
+        'Official tax receipt for verified digital software licenses. Registered in accordance with online merchant standards.',
+    };
+
+    return res.status(200).json({
+      success: true,
+      invoiceConfig,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Admin: Update Invoice Designer settings
+ */
+export const updateInvoiceDesignerSettings = async (req, res) => {
+  try {
+    const newConfig = req.body;
+    let settings = await WebsiteSetting.findOne();
+    if (!settings) {
+      settings = new WebsiteSetting();
+    }
+
+    settings.invoiceConfig = {
+      ...(settings.invoiceConfig ? settings.invoiceConfig.toObject() : {}),
+      ...newConfig,
+    };
+
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Invoice Designer settings saved successfully',
+      invoiceConfig: settings.invoiceConfig,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Admin: Generate a Test / Preview Invoice PDF with current draft settings
+ */
+export const generateTestInvoicePdf = async (req, res) => {
+  try {
+    const draftConfig = req.body.invoiceConfig || {};
+    const mockOrderType = req.body.mockType || 'single';
+
+    // Build realistic mock invoice
+    const mockItems = mockOrderType === 'multi'
+      ? [
+          {
+            productTitle: 'JetBrains All Products Pack (1-Year Commercial)',
+            duration: 'annual',
+            quantity: 1,
+            unitPrice: 24999,
+            totalPrice: 24999,
+            hsnSac: '998434',
+            productAccessLink: 'https://bundlebyte.com/dashboard/vault',
+            setupGuideUrl: 'https://bundlebyte.com/docs/jetbrains-setup',
+            vaultUrl: 'https://bundlebyte.com/dashboard/vault',
+            licenseKey: 'JB-2026-X99B-4812-PRO',
+          },
+          {
+            productTitle: 'Claude Pro Corporate Multi-Seat License',
+            duration: 'monthly',
+            quantity: 2,
+            unitPrice: 1999,
+            totalPrice: 3998,
+            hsnSac: '998434',
+            productAccessLink: 'https://bundlebyte.com/dashboard/vault',
+            setupGuideUrl: 'https://bundlebyte.com/docs/claude-onboarding',
+            vaultUrl: 'https://bundlebyte.com/dashboard/vault',
+            licenseKey: '',
+          },
+        ]
+      : [
+          {
+            productTitle: 'Microsoft Windows 11 Pro Retail License (Perpetual)',
+            duration: 'lifetime',
+            quantity: 1,
+            unitPrice: 4999,
+            totalPrice: 4999,
+            hsnSac: '998434',
+            productAccessLink: 'https://bundlebyte.com/dashboard/vault',
+            setupGuideUrl: 'https://bundlebyte.com/docs/win11-activate',
+            vaultUrl: 'https://bundlebyte.com/dashboard/vault',
+            licenseKey: 'W11PR-99B4-4812-ABCD-7777',
+          },
+        ];
+
+    const subtotal = mockItems.reduce((acc, it) => acc + it.totalPrice, 0);
+    const taxAmount = Math.round(subtotal * 0.18);
+    const totalAmount = subtotal + taxAmount;
+
+    const mockInvoice = {
+      invoiceNumber: `${draftConfig.invoicePrefix || 'INV'}-2026-PREVIEW`,
+      order: {
+        orderNumber: 'ORD-TEST-9921',
+      },
+      customerName: req.user?.name || 'Admin Tester',
+      customerEmail: req.user?.email || 'admin@bundlebyte.com',
+      invoiceDate: new Date(),
+      status: 'paid',
+      paymentDetails: {
+        paymentStatus: 'paid',
+        paymentMethod: 'UPI_INSTANT',
+        transactionId: 'TXN-TEST-PREVIEW-8812',
+      },
+      businessInfo: {
+        companyName: draftConfig.companyName || 'BundleByte Technologies Pvt Ltd',
+        businessAddress: draftConfig.businessAddress || '100 Innovation Boulevard, Tech Park, Bangalore 560001',
+        emailAddress: draftConfig.supportEmail || 'billing@bundlebyte.com',
+        contactPhone: draftConfig.supportPhone || '+91 80 4000 1234',
+        gstin: draftConfig.gstin || '29ABCDE1234F1Z5',
+        websiteUrl: draftConfig.websiteUrl || 'https://bundlebyte.com',
+      },
+      items: mockItems,
+      financialSnapshot: {
+        subtotal,
+        discount: 0,
+        taxableAmount: subtotal,
+        taxAmount,
+        currency: 'INR',
+        isIntraState: true,
+        taxBreakdown: {
+          cgst: taxAmount / 2,
+          sgst: taxAmount / 2,
+          igst: 0,
+        },
+        placeOfSupply: draftConfig.defaultPlaceOfSupply || 'Karnataka (29)',
+        totalAmount,
+      },
+    };
+
+    const buffer = generateInvoicePdfBuffer(mockInvoice, draftConfig);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-Preview.pdf"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    return res.send(buffer);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Customer / Admin: Download Invoice PDF directly by Order ID
+ */
+export const downloadInvoicePdfForOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId).populate('items.product');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const isOwner = order.user?.toString() === req.user._id?.toString();
+    const isAdmin = ['super_admin', 'admin', 'manager'].includes(req.user.role);
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Not authorized to download invoice for this order' });
+    }
+
+    const invoice = await getOrCreateInvoiceForOrder(order, req.user);
+    const { filename, buffer } = await getInvoicePdf(invoice._id, req.user);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Download invoice by order error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Customer / Admin: Get Invoice Details by Order ID
+ */
+export const getInvoiceForOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId).populate('items.product');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const isOwner = order.user?.toString() === req.user._id?.toString();
+    const isAdmin = ['super_admin', 'admin', 'manager'].includes(req.user.role);
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view invoice for this order' });
+    }
+
+    const invoice = await getOrCreateInvoiceForOrder(order, req.user);
+    return res.status(200).json({
+      success: true,
       invoice,
     });
   } catch (err) {

@@ -10,7 +10,15 @@ import { generateInvoicePdfBuffer } from './invoicePdfGenerator.js';
  */
 export const generateNextInvoiceNumber = async () => {
   const currentYear = new Date().getFullYear();
-  const prefix = `INV-${currentYear}-`;
+  let prefix = `INV-${currentYear}-`;
+  try {
+    const settings = await WebsiteSetting.findOne().select('invoiceConfig');
+    if (settings?.invoiceConfig?.invoicePrefix) {
+      prefix = `${settings.invoiceConfig.invoicePrefix.trim().toUpperCase()}-${currentYear}-`;
+    }
+  } catch (e) {
+    // fallback to INV
+  }
 
   const latest = await Invoice.findOne({ invoiceNumber: new RegExp(`^${prefix}`) })
     .sort({ createdAt: -1 })
@@ -59,17 +67,18 @@ export const getBusinessInfoSnapshot = async () => {
     const TaxConfiguration = (await import('../models/TaxConfiguration.js')).default;
     const taxConfig = await TaxConfiguration.findOne();
     const settings = await WebsiteSetting.findOne();
+    const invCfg = settings?.invoiceConfig || {};
     const branding = settings?.branding || {};
     return {
-      companyName: taxConfig?.businessLegalName || branding.companyName || 'BundleByte Technologies Pvt Ltd',
-      companyLogo: branding.logoUrl || '',
-      businessAddress: taxConfig?.registeredAddress?.street
+      companyName: invCfg.companyName || taxConfig?.businessLegalName || branding.companyName || 'BundleByte Technologies Pvt Ltd',
+      companyLogo: invCfg.logoUrl || branding.logoUrl || '',
+      businessAddress: invCfg.businessAddress || (taxConfig?.registeredAddress?.street
         ? `${taxConfig.registeredAddress.street}, ${taxConfig.registeredAddress.city}, ${taxConfig.registeredAddress.state} ${taxConfig.registeredAddress.pincode}`
-        : branding.businessAddress || '100 Innovation Boulevard, Tech Park, Bangalore 560001',
-      emailAddress: branding.supportEmail || 'billing@bundlebyte.com',
-      contactPhone: branding.contactPhone || '+91 80 4000 1234',
-      gstin: taxConfig?.gstin || branding.gstin || '29ABCDE1234F1Z5',
-      websiteUrl: branding.websiteUrl || 'https://bundlebyte.com',
+        : branding.businessAddress || '100 Innovation Boulevard, Tech Park, Bangalore 560001'),
+      emailAddress: invCfg.supportEmail || branding.supportEmail || 'billing@bundlebyte.com',
+      contactPhone: invCfg.supportPhone || branding.contactPhone || '+91 80 4000 1234',
+      gstin: invCfg.gstin || taxConfig?.gstin || branding.gstin || '29ABCDE1234F1Z5',
+      websiteUrl: invCfg.websiteUrl || branding.websiteUrl || 'https://bundlebyte.com',
     };
   } catch (err) {
     return {
@@ -100,27 +109,46 @@ export const getOrCreateInvoiceForOrder = async (orderOrId, userMaybe = null) =>
   }
 
   const user = userMaybe || (await User.findById(order.user));
+  const settings = await WebsiteSetting.findOne();
+  const invConfig = settings?.invoiceConfig || {};
   const invoiceNumber = await generateNextInvoiceNumber();
   const businessInfo = await getBusinessInfoSnapshot();
 
-  const items = (order.items || []).map((item) => ({
-    product: item.product?._id || item.product,
-    productTitle: item.productTitle || item.product?.title || 'Digital Product',
-    productLogo: item.productLogo || item.product?.logo || '',
-    quantity: item.quantity || 1,
-    unitPrice: item.unitPrice || 0,
-    discount: item.discount || 0,
-    tax: item.itemTaxAmount || ((item.cgst || 0) + (item.sgst || 0) + (item.igst || 0)) || 0,
-    totalPrice: item.totalPrice || item.unitPrice * (item.quantity || 1),
-    deliveryType: item.deliveryType || 'instant_automated',
-    duration: item.duration || 'annual',
-    hsnSac: item.hsnSac || '998434',
-    taxRate: item.taxRate !== undefined ? item.taxRate : 18,
-    taxableAmount: item.taxableAmount || (item.unitPrice * (item.quantity || 1)),
-    cgst: item.cgst || 0,
-    sgst: item.sgst || 0,
-    igst: item.igst || 0,
-  }));
+  const clientUrl = process.env.CLIENT_URL || 'https://bundlebyte.com';
+  const vaultUrl = `${clientUrl}/dashboard/vault`;
+
+  const items = (order.items || []).map((item) => {
+    const prodAccess = item.accessLink || item.product?.accessLink || vaultUrl;
+    const guideUrl = item.setupGuideUrl || item.product?.setupGuideUrl || '';
+    const key = (item.allocatedKeys && item.allocatedKeys.length > 0)
+      ? item.allocatedKeys[0]
+      : (item.product?.productKeys?.find((k) => !k.isUsed)?.key || '');
+    const actSteps = item.activationProcess || item.product?.activationGuide || '';
+
+    return {
+      product: item.product?._id || item.product,
+      productTitle: item.productTitle || item.product?.title || 'Digital Product',
+      productLogo: item.productLogo || item.product?.logo || '',
+      quantity: item.quantity || 1,
+      unitPrice: item.unitPrice || 0,
+      discount: item.discount || 0,
+      tax: item.itemTaxAmount || ((item.cgst || 0) + (item.sgst || 0) + (item.igst || 0)) || 0,
+      totalPrice: item.totalPrice || item.unitPrice * (item.quantity || 1),
+      deliveryType: item.deliveryType || 'instant_automated',
+      duration: item.duration || 'annual',
+      productAccessLink: prodAccess,
+      setupGuideUrl: guideUrl,
+      vaultUrl: vaultUrl,
+      licenseKey: key,
+      activationSteps: actSteps,
+      hsnSac: item.hsnSac || '998434',
+      taxRate: item.taxRate !== undefined ? item.taxRate : 18,
+      taxableAmount: item.taxableAmount || (item.unitPrice * (item.quantity || 1)),
+      cgst: item.cgst || 0,
+      sgst: item.sgst || 0,
+      igst: item.igst || 0,
+    };
+  });
 
   const subtotal = order.subtotal || order.totalAmount;
   const discount = order.discount || 0;
@@ -157,7 +185,7 @@ export const getOrCreateInvoiceForOrder = async (orderOrId, userMaybe = null) =>
       taxRate: taxAmount > 0 ? (taxDetails.isIntraState ? 18 : 18) : 0,
       taxType: 'GST',
       taxMode: taxDetails.taxMode || 'exclusive',
-      placeOfSupply: taxDetails.placeOfSupply || order.billingAddress?.state || 'Karnataka',
+      placeOfSupply: taxDetails.placeOfSupply || order.billingAddress?.state || invConfig.defaultPlaceOfSupply || 'Karnataka',
       placeOfSupplyCode: taxDetails.customerStateCode || '29',
       isIntraState: taxDetails.isIntraState ?? true,
       taxBreakdown: {
@@ -188,6 +216,9 @@ export const getOrCreateInvoiceForOrder = async (orderOrId, userMaybe = null) =>
     businessInfo,
     invoiceDate: order.createdAt || new Date(),
     status: order.paymentStatus === 'paid' ? 'paid' : 'issued',
+    notes: invConfig.footerNote || 'Thank you for your business. Digital goods are delivered into your customer vault.',
+    terms: invConfig.termsText || 'Digital product sales are subject to our terms of service and standard refund policy.',
+    invoiceConfigSnapshot: invConfig,
     idempotencyKey: `inv-order-${order._id}`,
   });
 
@@ -250,14 +281,17 @@ export const createCreditNoteForRefund = async ({ order, refund, user, reason })
  * Downloads or generates invoice PDF buffer with authorization check
  */
 export const getInvoicePdf = async (invoiceId, requestingUser = null) => {
-  const invoice = await Invoice.findById(invoiceId).populate('order');
+  const invoice = await Invoice.findById(invoiceId).populate({
+    path: 'order',
+    populate: { path: 'items.product' },
+  });
   if (!invoice) {
     throw new Error('Invoice not found');
   }
 
   // Authorization check: User must be admin or the invoice recipient
   if (requestingUser) {
-    const isOwner = invoice.user.toString() === requestingUser._id.toString();
+    const isOwner = invoice.user?.toString() === requestingUser._id?.toString();
     const isAdmin = ['super_admin', 'admin', 'manager'].includes(requestingUser.role);
     if (!isOwner && !isAdmin) {
       throw new Error('Not authorized to access this invoice');
@@ -268,7 +302,10 @@ export const getInvoicePdf = async (invoiceId, requestingUser = null) => {
   invoice.lastDownloadedAt = new Date();
   await invoice.save();
 
-  const pdfBuffer = generateInvoicePdfBuffer(invoice);
+  const settings = await WebsiteSetting.findOne().select('invoiceConfig');
+  const invoiceConfig = invoice.invoiceConfigSnapshot || settings?.invoiceConfig || {};
+
+  const pdfBuffer = generateInvoicePdfBuffer(invoice, invoiceConfig);
   return {
     filename: `Invoice-${invoice.invoiceNumber}.pdf`,
     buffer: pdfBuffer,
