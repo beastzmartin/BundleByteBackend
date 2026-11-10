@@ -92,6 +92,15 @@ export const reviewRefund = async (req, res, next) => {
           const gateway = getPaymentGateway(payment.gateway);
           await gateway.processRefund({ payment, amount: refund.amount, reason: refund.reason });
         }
+
+        // Issue official GST Credit Note
+        try {
+          const { createCreditNoteForRefund } = await import('../services/invoiceService.js');
+          const customerUser = await User.findById(refund.user);
+          await createCreditNoteForRefund({ order, refund, user: customerUser, reason: refund.reason });
+        } catch (cnErr) {
+          console.error('Error generating GST credit note for refund:', cnErr);
+        }
       }
     }
 

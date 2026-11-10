@@ -162,6 +162,13 @@ export const generateInvoicePdfBuffer = (invoice) => {
   streamLines.push(`(Payment: ${escapePdfText(paymentMethod)} | Txn: ${escapePdfText(transactionId.substring(0, 16))}) Tj`);
   streamLines.push('ET');
 
+  streamLines.push('BT');
+  streamLines.push('/F1 8 Tf');
+  streamLines.push('0.38 0.44 0.53 rg');
+  streamLines.push(`320 ${metaY - 64} Td`);
+  streamLines.push(`(Place of Supply: ${escapePdfText(financial.placeOfSupply || 'Karnataka (29)')}) Tj`);
+  streamLines.push('ET');
+
   // 5. Items Table
   let tableY = metaY - 100;
   streamLines.push('q');
@@ -242,47 +249,73 @@ export const generateInvoicePdfBuffer = (invoice) => {
 
   // 6. Summary Card (Right-aligned)
   const summaryTop = tableY - 10;
-  const summaryLeft = 320;
+  const summaryLeft = 300;
   const summaryWidth = width - 40 - summaryLeft;
+
+  const isIntraState = financial.isIntraState !== undefined ? financial.isIntraState : true;
+  const cgstVal = (financial.taxBreakdown?.cgst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const sgstVal = (financial.taxBreakdown?.sgst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const igstVal = (financial.taxBreakdown?.igst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const taxableVal = (financial.taxableAmount || (financial.subtotal - (financial.discount || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const custSurcharge = financial.gatewayFeeDetails?.customerSurcharge || financial.additionalCharges || 0;
+
+  const cardHeight = custSurcharge > 0 ? 150 : 135;
 
   streamLines.push('q');
   streamLines.push('0.97 0.98 0.99 rg');
   streamLines.push('0.85 0.88 0.92 RG');
-  streamLines.push(`${summaryLeft} ${summaryTop - 110} ${summaryWidth} 110 re B`);
+  streamLines.push(`${summaryLeft} ${summaryTop - cardHeight} ${summaryWidth} ${cardHeight} re B`);
   streamLines.push('Q');
 
   const printSummaryRow = (label, value, yOffset, isBold = false, isAccent = false) => {
     streamLines.push('BT');
     streamLines.push(isBold ? '/F2 9 Tf' : '/F1 9 Tf');
     streamLines.push(isAccent ? '0.31 0.27 0.90 rg' : '0.28 0.35 0.44 rg');
-    streamLines.push(`${summaryLeft + 15} ${summaryTop - yOffset} Td`);
+    streamLines.push(`${summaryLeft + 12} ${summaryTop - yOffset} Td`);
     streamLines.push(`(${label}) Tj`);
     streamLines.push('ET');
 
     streamLines.push('BT');
     streamLines.push(isBold ? '/F2 9 Tf' : '/F1 9 Tf');
     streamLines.push(isAccent ? '0.31 0.27 0.90 rg' : '0.06 0.09 0.16 rg');
-    streamLines.push(`${summaryLeft + summaryWidth - 75} ${summaryTop - yOffset} Td`);
+    streamLines.push(`${summaryLeft + summaryWidth - 70} ${summaryTop - yOffset} Td`);
     streamLines.push(`(${value}) Tj`);
     streamLines.push('ET');
   };
 
-  printSummaryRow('Subtotal:', `${currencySymbol} ${subtotal}`, 22);
+  let rowY = 18;
+  printSummaryRow('Subtotal:', `${currencySymbol} ${subtotal}`, rowY);
   if (financial.discount > 0 || financial.couponDiscount > 0) {
-    printSummaryRow('Discount:', `-${currencySymbol} ${discount}`, 40);
+    rowY += 16;
+    printSummaryRow('Discount:', `-${currencySymbol} ${discount}`, rowY);
   }
-  if (financial.walletAmountUsed > 0) {
-    printSummaryRow('Wallet Balance Used:', `-${currencySymbol} ${walletUsed}`, 58);
+  rowY += 16;
+  printSummaryRow('Taxable Value:', `${currencySymbol} ${taxableVal}`, rowY);
+
+  if (isIntraState) {
+    rowY += 16;
+    printSummaryRow('CGST (9%):', `${currencySymbol} ${cgstVal}`, rowY);
+    rowY += 16;
+    printSummaryRow('SGST (9%):', `${currencySymbol} ${sgstVal}`, rowY);
+  } else {
+    rowY += 16;
+    printSummaryRow('IGST (18%):', `${currencySymbol} ${igstVal}`, rowY);
   }
-  printSummaryRow('Tax / GST Included:', `${currencySymbol} ${taxAmount}`, 76);
+
+  if (custSurcharge > 0) {
+    rowY += 16;
+    printSummaryRow('Gateway Fee & GST:', `+${currencySymbol} ${custSurcharge.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, rowY);
+  }
 
   // Grand total divider
+  rowY += 10;
   streamLines.push('q');
   streamLines.push('0.85 0.88 0.92 RG');
-  streamLines.push(`${summaryLeft} ${summaryTop - 84} m ${summaryLeft + summaryWidth} ${summaryTop - 84} l S`);
+  streamLines.push(`${summaryLeft} ${summaryTop - rowY} m ${summaryLeft + summaryWidth} ${summaryTop - rowY} l S`);
   streamLines.push('Q');
 
-  printSummaryRow('Grand Total:', `${currencySymbol} ${totalAmount}`, 100, true, true);
+  rowY += 16;
+  printSummaryRow('Final Invoice Total:', `${currencySymbol} ${totalAmount}`, rowY, true, true);
 
   // 7. Security & Authenticity Hash on bottom-left
   streamLines.push('BT');

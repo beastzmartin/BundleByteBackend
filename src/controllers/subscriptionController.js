@@ -4,6 +4,7 @@ import Product from '../models/Product.js';
 import { calculateEndDate, checkAndUpdateSubscriptionStatuses } from '../services/subscriptionService.js';
 import { getPaymentGateway } from '../services/payment/index.js';
 import { logAudit } from '../middleware/audit.js';
+import taxFeeEngine, { round2 } from '../services/taxFeeEngine.js';
 
 export const getMySubscriptions = async (req, res, next) => {
   try {
@@ -45,6 +46,38 @@ export const renewSubscription = async (req, res, next) => {
     const tier = product.pricing[subscription.duration];
     const unitPrice = tier?.price || subscription.billingCyclePrice;
 
+    // Calculate GST via centralized tax engine
+    const customerState = req.user.billingAddress?.state || 'Karnataka';
+    const renewalItems = [
+      {
+        product: product._id,
+        productTitle: product.title,
+        productLogo: product.logo,
+        productCategoryName: 'Subscription Renewal',
+        duration: subscription.duration,
+        unitPrice,
+        quantity: 1,
+        totalPrice: unitPrice,
+        deliveryType: product.deliveryType,
+        deliveryStatus: 'pending',
+        hsnSac: product.hsnSacCode || '998434',
+        taxRate: product.gstRate !== undefined && product.gstRate >= 0 ? product.gstRate : 18,
+      },
+    ];
+
+    const orderTaxResult = await taxFeeEngine.calculateOrderTax({
+      items: renewalItems,
+      discount: 0,
+      customerState,
+    });
+
+    const gatewayFeeResult = await taxFeeEngine.calculateGatewayFee({
+      orderAmount: orderTaxResult.totalAmount,
+      gatewayKey: paymentMethod,
+    });
+
+    const totalAmount = round2(orderTaxResult.totalAmount + gatewayFeeResult.customerSurcharge);
+
     // Create a renewal order
     const orderNumber = `BB-REN-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -53,24 +86,43 @@ export const renewSubscription = async (req, res, next) => {
       user: req.user._id,
       customerEmail: req.user.email,
       customerName: req.user.name,
-      items: [
-        {
-          product: product._id,
-          productTitle: product.title,
-          productLogo: product.logo,
-          productCategoryName: 'Subscription Renewal',
-          duration: subscription.duration,
-          unitPrice,
-          quantity: 1,
-          totalPrice: unitPrice,
-          deliveryType: product.deliveryType,
-          deliveryStatus: 'pending',
-        },
-      ],
-      subtotal: unitPrice,
+      items: orderTaxResult.items,
+      subtotal: orderTaxResult.subtotal,
       discount: 0,
-      taxAmount: 0,
-      totalAmount: unitPrice,
+      taxAmount: orderTaxResult.totalTax,
+      totalAmount,
+      taxDetails: {
+        gstin: orderTaxResult.gstin,
+        businessName: orderTaxResult.businessName,
+        businessState: orderTaxResult.businessState,
+        businessStateCode: orderTaxResult.businessStateCode,
+        customerState: orderTaxResult.customerState,
+        customerStateCode: orderTaxResult.customerStateCode,
+        placeOfSupply: orderTaxResult.placeOfSupply,
+        isIntraState: orderTaxResult.isIntraState,
+        taxMode: orderTaxResult.taxMode,
+        taxableAmount: orderTaxResult.taxableAmount,
+        cgst: orderTaxResult.cgst,
+        sgst: orderTaxResult.sgst,
+        igst: orderTaxResult.igst,
+        totalTax: orderTaxResult.totalTax,
+        isExempt: false,
+        hsnSacSummary: orderTaxResult.hsnSacSummary,
+      },
+      gatewayFeeDetails: {
+        gatewayKey: gatewayFeeResult.gatewayKey,
+        gatewayName: gatewayFeeResult.gatewayName,
+        feePayer: gatewayFeeResult.feePayer,
+        baseFee: gatewayFeeResult.baseFee,
+        feeGst: gatewayFeeResult.feeGst,
+        totalFee: gatewayFeeResult.totalFee,
+        customerSurcharge: gatewayFeeResult.customerSurcharge,
+      },
+      currency: 'INR',
+      baseCurrency: 'INR',
+      baseAmount: totalAmount,
+      customerCurrency: 'INR',
+      customerAmount: totalAmount,
       paymentMethod,
       paymentStatus: 'pending',
       orderStatus: 'processing',

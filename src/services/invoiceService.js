@@ -56,15 +56,19 @@ export const generateNextCreditNoteNumber = async () => {
  */
 export const getBusinessInfoSnapshot = async () => {
   try {
+    const TaxConfiguration = (await import('../models/TaxConfiguration.js')).default;
+    const taxConfig = await TaxConfiguration.findOne();
     const settings = await WebsiteSetting.findOne();
     const branding = settings?.branding || {};
     return {
-      companyName: branding.companyName || 'BundleByte Technologies Pvt Ltd',
+      companyName: taxConfig?.businessLegalName || branding.companyName || 'BundleByte Technologies Pvt Ltd',
       companyLogo: branding.logoUrl || '',
-      businessAddress: branding.businessAddress || '100 Innovation Boulevard, Tech Park, Bangalore 560001',
+      businessAddress: taxConfig?.registeredAddress?.street
+        ? `${taxConfig.registeredAddress.street}, ${taxConfig.registeredAddress.city}, ${taxConfig.registeredAddress.state} ${taxConfig.registeredAddress.pincode}`
+        : branding.businessAddress || '100 Innovation Boulevard, Tech Park, Bangalore 560001',
       emailAddress: branding.supportEmail || 'billing@bundlebyte.com',
       contactPhone: branding.contactPhone || '+91 80 4000 1234',
-      gstin: branding.gstin || '29ABCDE1234F1Z5',
+      gstin: taxConfig?.gstin || branding.gstin || '29ABCDE1234F1Z5',
       websiteUrl: branding.websiteUrl || 'https://bundlebyte.com',
     };
   } catch (err) {
@@ -106,16 +110,24 @@ export const getOrCreateInvoiceForOrder = async (orderOrId, userMaybe = null) =>
     quantity: item.quantity || 1,
     unitPrice: item.unitPrice || 0,
     discount: item.discount || 0,
-    tax: 0,
+    tax: item.itemTaxAmount || ((item.cgst || 0) + (item.sgst || 0) + (item.igst || 0)) || 0,
     totalPrice: item.totalPrice || item.unitPrice * (item.quantity || 1),
     deliveryType: item.deliveryType || 'instant_automated',
     duration: item.duration || 'annual',
+    hsnSac: item.hsnSac || '998434',
+    taxRate: item.taxRate !== undefined ? item.taxRate : 18,
+    taxableAmount: item.taxableAmount || (item.unitPrice * (item.quantity || 1)),
+    cgst: item.cgst || 0,
+    sgst: item.sgst || 0,
+    igst: item.igst || 0,
   }));
 
   const subtotal = order.subtotal || order.totalAmount;
   const discount = order.discount || 0;
   const totalAmount = order.totalAmount;
   const taxAmount = order.taxAmount || 0;
+  const taxDetails = order.taxDetails || {};
+  const feeDetails = order.gatewayFeeDetails || {};
 
   const invoice = await Invoice.create({
     invoiceNumber,
@@ -135,20 +147,34 @@ export const getOrCreateInvoiceForOrder = async (orderOrId, userMaybe = null) =>
     items,
     financialSnapshot: {
       subtotal,
+      taxableAmount: taxDetails.taxableAmount || Math.max(0, subtotal - discount),
       discount,
       couponDiscount: discount,
       couponCode: order.couponCode || '',
       walletAmountUsed: order.walletAmountUsed || 0,
       gatewayAmountPaid: order.gatewayAmountPaid || totalAmount,
       taxAmount,
-      taxRate: taxAmount > 0 ? 18 : 0,
+      taxRate: taxAmount > 0 ? (taxDetails.isIntraState ? 18 : 18) : 0,
       taxType: 'GST',
+      taxMode: taxDetails.taxMode || 'exclusive',
+      placeOfSupply: taxDetails.placeOfSupply || order.billingAddress?.state || 'Karnataka',
+      placeOfSupplyCode: taxDetails.customerStateCode || '29',
+      isIntraState: taxDetails.isIntraState ?? true,
       taxBreakdown: {
-        cgst: taxAmount / 2,
-        sgst: taxAmount / 2,
-        igst: 0,
+        cgst: taxDetails.cgst !== undefined ? taxDetails.cgst : (taxDetails.isIntraState ? taxAmount / 2 : 0),
+        sgst: taxDetails.sgst !== undefined ? taxDetails.sgst : (taxDetails.isIntraState ? taxAmount / 2 : 0),
+        igst: taxDetails.igst !== undefined ? taxDetails.igst : (!taxDetails.isIntraState ? taxAmount : 0),
       },
-      additionalCharges: 0,
+      gatewayFeeDetails: {
+        gatewayKey: feeDetails.gatewayKey || '',
+        gatewayName: feeDetails.gatewayName || '',
+        feePayer: feeDetails.feePayer || 'merchant_absorb',
+        baseFee: feeDetails.baseFee || 0,
+        feeGst: feeDetails.feeGst || 0,
+        totalFee: feeDetails.totalFee || 0,
+        customerSurcharge: feeDetails.customerSurcharge || 0,
+      },
+      additionalCharges: feeDetails.customerSurcharge || 0,
       totalAmount,
       currency: order.currency || 'INR',
     },
@@ -177,6 +203,9 @@ export const createCreditNoteForRefund = async ({ order, refund, user, reason })
 
   const creditNoteNumber = await generateNextCreditNoteNumber();
   const businessInfo = await getBusinessInfoSnapshot();
+  const taxFeeEngine = (await import('./taxFeeEngine.js')).default;
+  const refundAmount = refund?.amount || order.totalAmount;
+  const taxAdj = taxFeeEngine.calculateRefundTaxAdjustment({ originalOrder: order, refundAmount });
 
   const creditNote = await CreditNote.create({
     creditNoteNumber,
@@ -187,7 +216,16 @@ export const createCreditNoteForRefund = async ({ order, refund, user, reason })
     customerName: invoice.customerName,
     customerEmail: invoice.customerEmail,
     originalInvoiceNumber: invoice.invoiceNumber,
-    refundAmount: refund?.amount || order.totalAmount,
+    refundAmount,
+    taxAdjustment: {
+      taxableAmountRefunded: taxAdj.taxableAmountRefunded,
+      cgstRefunded: taxAdj.cgstRefunded,
+      sgstRefunded: taxAdj.sgstRefunded,
+      igstRefunded: taxAdj.igstRefunded,
+      totalTaxRefunded: taxAdj.totalTaxRefunded,
+      placeOfSupply: taxAdj.placeOfSupply,
+      isIntraState: taxAdj.isIntraState,
+    },
     currency: order.currency || 'INR',
     reason: reason || refund?.reason || 'Customer refund requested',
     items: invoice.items.map((it) => ({

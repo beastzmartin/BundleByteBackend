@@ -198,6 +198,26 @@ const productSchema = new mongoose.Schema(
       default: 'annual',
     },
 
+    // GST & Tax Classification
+    hsnSacCode: {
+      type: String,
+      default: '998434', // SAC 998434: Software downloads & digital services
+      trim: true,
+    },
+    gstRate: {
+      type: Number,
+      default: -1, // -1 inherits system default GST rate, or 0, 5, 12, 18, 28
+    },
+    taxInclusive: {
+      type: Boolean,
+      default: false,
+    },
+    taxCategory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'TaxCategory',
+      default: null,
+    },
+
     // Stock & Status
     stockCount: {
       type: Number,

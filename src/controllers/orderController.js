@@ -10,6 +10,7 @@ import { getPaymentGateway } from '../services/payment/index.js';
 import { processOrderKeyDelivery } from '../services/keyDeliveryEngine.js';
 import { logAudit } from '../middleware/audit.js';
 import { sendOrderConfirmationEmail, sendOrderStatusUpdateEmail } from '../services/emailService.js';
+import taxFeeEngine, { round2 } from '../services/taxFeeEngine.js';
 
 export const createOrder = async (req, res, next) => {
   try {
@@ -147,6 +148,9 @@ export const createOrder = async (req, res, next) => {
         orderNote: product.orderNote || '',
         setupGuideUrl: product.setupGuideUrl || '',
         accessLink: product.defaultAccessLink || '',
+        hsnSac: product.hsnSacCode || '998434',
+        taxRate: product.gstRate !== undefined && product.gstRate >= 0 ? product.gstRate : 18,
+        product,
       });
     }
 
@@ -177,12 +181,26 @@ export const createOrder = async (req, res, next) => {
       }
     }
 
-    // Settings & Tax
-    const settings = await WebsiteSetting.findOne();
-    const taxRate = settings?.taxRatePercent || 0;
-    const taxableAmount = Math.max(0, subtotal - discount);
-    const taxAmount = parseFloat(((taxableAmount * taxRate) / 100).toFixed(2));
-    const totalAmount = parseFloat((taxableAmount + taxAmount).toFixed(2));
+    // Centralized GST & Place of Supply calculation
+    const customerState =
+      billingAddress?.state || req.user.billingAddress?.state || req.body.customerState || 'Karnataka';
+
+    const orderTaxResult = await taxFeeEngine.calculateOrderTax({
+      items: orderItems,
+      discount,
+      customerState,
+    });
+
+    // Centralized Gateway Fee calculation
+    const gatewayFeeResult = await taxFeeEngine.calculateGatewayFee({
+      orderAmount: orderTaxResult.totalAmount,
+      gatewayKey: paymentMethod,
+    });
+
+    const taxAmount = orderTaxResult.totalTax;
+    const taxableAmount = orderTaxResult.taxableAmount;
+    // Total order amount = product total (tax inclusive or exclusive) + customer surcharge (if customer pays gateway fee)
+    const totalAmount = round2(orderTaxResult.totalAmount + gatewayFeeResult.customerSurcharge);
 
     // Generate readable, unique order number
     const orderNumber = `BB-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -194,7 +212,7 @@ export const createOrder = async (req, res, next) => {
     let baseAmount = totalAmount;
     let exchangeRate = 1.0;
     let conversionMarginAmount = 0;
-    let gatewayFeeAmount = 0;
+    let gatewayFeeAmount = gatewayFeeResult.totalFee;
     let processingCurrency = 'INR';
     let processingAmount = totalAmount;
 
@@ -218,12 +236,39 @@ export const createOrder = async (req, res, next) => {
       user: req.user._id,
       customerEmail: req.user.email,
       customerName: req.user.name,
-      items: orderItems,
-      subtotal,
-      discount,
+      items: orderTaxResult.items,
+      subtotal: orderTaxResult.subtotal,
+      discount: orderTaxResult.discount,
       couponCode: validCouponCode,
       taxAmount,
       totalAmount,
+      taxDetails: {
+        gstin: orderTaxResult.gstin,
+        businessName: orderTaxResult.businessName,
+        businessState: orderTaxResult.businessState,
+        businessStateCode: orderTaxResult.businessStateCode,
+        customerState: orderTaxResult.customerState,
+        customerStateCode: orderTaxResult.customerStateCode,
+        placeOfSupply: orderTaxResult.placeOfSupply,
+        isIntraState: orderTaxResult.isIntraState,
+        taxMode: orderTaxResult.taxMode,
+        taxableAmount: orderTaxResult.taxableAmount,
+        cgst: orderTaxResult.cgst,
+        sgst: orderTaxResult.sgst,
+        igst: orderTaxResult.igst,
+        totalTax: orderTaxResult.totalTax,
+        isExempt: false,
+        hsnSacSummary: orderTaxResult.hsnSacSummary,
+      },
+      gatewayFeeDetails: {
+        gatewayKey: gatewayFeeResult.gatewayKey,
+        gatewayName: gatewayFeeResult.gatewayName,
+        feePayer: gatewayFeeResult.feePayer,
+        baseFee: gatewayFeeResult.baseFee,
+        feeGst: gatewayFeeResult.feeGst,
+        totalFee: gatewayFeeResult.totalFee,
+        customerSurcharge: gatewayFeeResult.customerSurcharge,
+      },
       currency: customerCurrency,
       baseCurrency,
       baseAmount,

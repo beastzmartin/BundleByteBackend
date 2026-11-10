@@ -6,6 +6,7 @@ import GatewayCurrencyConfig from '../../models/GatewayCurrencyConfig.js';
 import CurrencyQuote from '../../models/CurrencyQuote.js';
 import ConversionRule from '../../models/ConversionRule.js';
 import exchangeRateService from './exchangeRateService.js';
+import taxFeeEngine from '../taxFeeEngine.js';
 
 class PricingEngine {
   /**
@@ -187,14 +188,41 @@ class PricingEngine {
     }
 
     const baseAfterDiscount = Math.max(0, baseSubtotal - baseDiscount);
-    const customerAfterDiscount = Math.max(0, customerSubtotal - customerDiscount);
 
-    // Gateway processing fee (percentage + fixed)
-    const gatewayFeePct = gatewayDoc.percentageFee || 0;
-    const gatewayFixed = gatewayDoc.fixedFee || 0;
-    const customerGatewayFee = Number(
-      ((customerAfterDiscount * gatewayFeePct) / 100 + gatewayFixed).toFixed(custCurrencyDoc.decimalDigits)
+    // Calculate base GST using centralized taxFeeEngine
+    const customerState = user?.billingAddress?.state || 'Karnataka';
+    const orderTaxResult = await taxFeeEngine.calculateOrderTax({
+      items: quoteItems.map((it) => ({
+        unitPrice: it.baseUnitPrice,
+        quantity: it.quantity,
+        hsnSac: '998434',
+      })),
+      discount: baseDiscount,
+      customerState,
+    });
+
+    const baseTaxAmount = orderTaxResult.totalTax;
+    const baseTotalWithTax = orderTaxResult.totalAmount;
+
+    // Calculate gateway processing fee via centralized taxFeeEngine
+    const gwFeeResult = await taxFeeEngine.calculateGatewayFee({
+      orderAmount: baseTotalWithTax,
+      gatewayKey: paymentGateway,
+    });
+
+    const customerTaxAmount = Number(
+      (baseTaxAmount * rateInfo.effectiveRate).toFixed(custCurrencyDoc.decimalDigits)
     );
+
+    const customerAfterDiscount = Math.max(0, customerSubtotal - customerDiscount);
+    const customerTaxedTotal = Number(
+      (baseTotalWithTax * rateInfo.effectiveRate).toFixed(custCurrencyDoc.decimalDigits)
+    );
+
+    // Customer gateway surcharge if applicable
+    const customerGatewayFee = gwFeeResult.isCustomerPaid
+      ? Number((gwFeeResult.totalFee * rateInfo.effectiveRate).toFixed(custCurrencyDoc.decimalDigits))
+      : 0;
 
     // Conversion margin breakdown
     const marginPct = rateInfo.marginPercentage || 0;
@@ -204,16 +232,16 @@ class PricingEngine {
 
     // Customer final payable total
     const customerTotal = Number(
-      (customerAfterDiscount + customerGatewayFee).toFixed(custCurrencyDoc.decimalDigits)
+      (customerTaxedTotal + customerGatewayFee).toFixed(custCurrencyDoc.decimalDigits)
     );
 
     // Calculate processing currency total (what the gateway will actually process)
-    let processingTotal = baseAfterDiscount;
+    let processingTotal = baseTotalWithTax + gwFeeResult.customerSurcharge;
     if (processingCurrency !== baseCode) {
       const procRate = await exchangeRateService.getExchangeRate(baseCode, processingCurrency);
-      processingTotal = Number((baseAfterDiscount * procRate.effectiveRate).toFixed(2));
+      processingTotal = Number((processingTotal * procRate.effectiveRate).toFixed(2));
     } else {
-      processingTotal = Number(baseAfterDiscount.toFixed(2));
+      processingTotal = Number(processingTotal.toFixed(2));
     }
 
     // Generate unique quote token
@@ -231,14 +259,14 @@ class PricingEngine {
       rateInverse: rateInfo.rateInverse,
       baseSubtotal: Number(baseSubtotal.toFixed(2)),
       baseDiscount: Number(baseDiscount.toFixed(2)),
-      baseTaxAmount: 0,
-      baseTotal: Number(baseAfterDiscount.toFixed(2)),
+      baseTaxAmount: Number(baseTaxAmount.toFixed(2)),
+      baseTotal: Number(baseTotalWithTax.toFixed(2)),
       customerSubtotal: Number(customerSubtotal.toFixed(custCurrencyDoc.decimalDigits)),
       customerDiscount: Number(customerDiscount.toFixed(custCurrencyDoc.decimalDigits)),
       marginPercentage: marginPct,
       conversionMarginAmount,
       gatewayFee: customerGatewayFee,
-      customerTaxAmount: 0,
+      customerTaxAmount,
       customerTotal,
       processingTotal,
       paymentGateway,

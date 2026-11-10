@@ -72,6 +72,35 @@ export const orderItemSchema = new mongoose.Schema({
     type: String,
     default: '',
   },
+  // Item GST attributes
+  hsnSac: {
+    type: String,
+    default: '998434',
+  },
+  taxRate: {
+    type: Number,
+    default: 18,
+  },
+  taxableAmount: {
+    type: Number,
+    default: 0,
+  },
+  cgst: {
+    type: Number,
+    default: 0,
+  },
+  sgst: {
+    type: Number,
+    default: 0,
+  },
+  igst: {
+    type: Number,
+    default: 0,
+  },
+  itemTaxAmount: {
+    type: Number,
+    default: 0,
+  },
 });
 
 const orderSchema = new mongoose.Schema(
@@ -113,6 +142,45 @@ const orderSchema = new mongoose.Schema(
     taxAmount: {
       type: Number,
       default: 0,
+    },
+    // Centralized GST Snapshot
+    taxDetails: {
+      gstin: { type: String, default: '' },
+      businessName: { type: String, default: '' },
+      businessState: { type: String, default: 'Karnataka' },
+      businessStateCode: { type: String, default: '29' },
+      customerState: { type: String, default: '' },
+      customerStateCode: { type: String, default: '' },
+      placeOfSupply: { type: String, default: '' },
+      isIntraState: { type: Boolean, default: false },
+      taxMode: { type: String, enum: ['exclusive', 'inclusive'], default: 'exclusive' },
+      taxableAmount: { type: Number, default: 0 },
+      cgst: { type: Number, default: 0 },
+      sgst: { type: Number, default: 0 },
+      igst: { type: Number, default: 0 },
+      totalTax: { type: Number, default: 0 },
+      isExempt: { type: Boolean, default: false },
+      hsnSacSummary: [
+        {
+          hsnSac: String,
+          taxableAmount: Number,
+          rate: Number,
+          cgst: Number,
+          sgst: Number,
+          igst: Number,
+          totalTax: Number,
+        },
+      ],
+    },
+    // Gateway Fee Snapshot
+    gatewayFeeDetails: {
+      gatewayKey: { type: String, default: '' },
+      gatewayName: { type: String, default: '' },
+      feePayer: { type: String, enum: ['merchant_absorb', 'customer_pay'], default: 'merchant_absorb' },
+      baseFee: { type: Number, default: 0 },
+      feeGst: { type: Number, default: 0 },
+      totalFee: { type: Number, default: 0 },
+      customerSurcharge: { type: Number, default: 0 },
     },
     totalAmount: {
       type: Number,

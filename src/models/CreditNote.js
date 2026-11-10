@@ -48,6 +48,16 @@ const creditNoteSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    // GST Tax Adjustment Snapshot for Credit Note
+    taxAdjustment: {
+      taxableAmountRefunded: { type: Number, default: 0 },
+      cgstRefunded: { type: Number, default: 0 },
+      sgstRefunded: { type: Number, default: 0 },
+      igstRefunded: { type: Number, default: 0 },
+      totalTaxRefunded: { type: Number, default: 0 },
+      placeOfSupply: { type: String, default: '' },
+      isIntraState: { type: Boolean, default: false },
+    },
     currency: {
       type: String,
       default: 'INR',

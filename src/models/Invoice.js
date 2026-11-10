@@ -15,6 +15,13 @@ const invoiceItemSchema = new mongoose.Schema({
   totalPrice: { type: Number, required: true },
   deliveryType: { type: String, default: 'instant_automated' },
   duration: { type: String, default: 'annual' },
+  // GST breakdown for this item
+  hsnSac: { type: String, default: '998434' },
+  taxRate: { type: Number, default: 18 },
+  taxableAmount: { type: Number, default: 0 },
+  cgst: { type: Number, default: 0 },
+  sgst: { type: Number, default: 0 },
+  igst: { type: Number, default: 0 },
 });
 
 const invoiceSchema = new mongoose.Schema(
@@ -60,6 +67,7 @@ const invoiceSchema = new mongoose.Schema(
     items: [invoiceItemSchema],
     financialSnapshot: {
       subtotal: { type: Number, required: true, default: 0 },
+      taxableAmount: { type: Number, default: 0 },
       discount: { type: Number, default: 0 },
       couponDiscount: { type: Number, default: 0 },
       couponCode: { type: String, default: '' },
@@ -68,10 +76,23 @@ const invoiceSchema = new mongoose.Schema(
       taxAmount: { type: Number, default: 0 },
       taxRate: { type: Number, default: 0 },
       taxType: { type: String, default: 'GST' },
+      taxMode: { type: String, enum: ['exclusive', 'inclusive'], default: 'exclusive' },
+      placeOfSupply: { type: String, default: 'Karnataka' },
+      placeOfSupplyCode: { type: String, default: '29' },
+      isIntraState: { type: Boolean, default: false },
       taxBreakdown: {
         cgst: { type: Number, default: 0 },
         sgst: { type: Number, default: 0 },
         igst: { type: Number, default: 0 },
+      },
+      gatewayFeeDetails: {
+        gatewayKey: { type: String, default: '' },
+        gatewayName: { type: String, default: '' },
+        feePayer: { type: String, enum: ['merchant_absorb', 'customer_pay'], default: 'merchant_absorb' },
+        baseFee: { type: Number, default: 0 },
+        feeGst: { type: Number, default: 0 },
+        totalFee: { type: Number, default: 0 },
+        customerSurcharge: { type: Number, default: 0 },
       },
       additionalCharges: { type: Number, default: 0 },
       totalAmount: { type: Number, required: true, default: 0 },

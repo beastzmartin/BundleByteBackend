@@ -30,6 +30,8 @@ export const PERMISSION_MODULES = [
   { id: 'team_management', name: 'Team & RBAC Management', description: 'Team members, custom roles, permissions, departments' },
   { id: 'system_settings', name: 'System Settings & Security', description: 'Global platform settings, API keys, maintenance mode' },
   { id: 'reports_analytics', name: 'Reports & Business Intelligence', description: 'Financial reconciliation, exportable CSV/PDF reports' },
+  { id: 'gst', name: 'GST & Tax Management', description: 'Centralized GSTIN, SAC codes, place of supply rules, and tax compliance' },
+  { id: 'gateway_fees', name: 'Payment Gateway Fees', description: 'Gateway processing fee rules, percentage/fixed rates, and surcharges' },
 ];
 
 export const PERMISSION_ACTIONS = [
@@ -231,6 +233,23 @@ export const PERMISSIONS_LIST = [
   { key: 'reports_analytics.view', module: 'reports_analytics', action: 'view', description: 'View financial & business intelligence reports', sensitivity: SENSITIVITY_LEVELS.LOW },
   { key: 'reports_analytics.read', module: 'reports_analytics', action: 'read', description: 'Access deep ledger audit & reconciliation analytics', sensitivity: SENSITIVITY_LEVELS.LOW },
   { key: 'reports_analytics.export', module: 'reports_analytics', action: 'export', description: 'Export accounting & tax reports to Excel/CSV', sensitivity: SENSITIVITY_LEVELS.HIGH },
+
+  // 20. GST & Tax Management
+  { key: 'gst.view', module: 'gst', action: 'view', description: 'View GST configuration and tax calculations', sensitivity: SENSITIVITY_LEVELS.LOW },
+  { key: 'gst.settings.manage', module: 'gst', action: 'manage', description: 'Configure GSTIN, legal name, and default rates', sensitivity: SENSITIVITY_LEVELS.CRITICAL },
+  { key: 'gst.rules.manage', module: 'gst', action: 'manage', description: 'Manage HSN/SAC codes and category classifications', sensitivity: SENSITIVITY_LEVELS.HIGH },
+  { key: 'gst.reports.view', module: 'gst', action: 'view', description: 'View GST reconciliation & sales register reports', sensitivity: SENSITIVITY_LEVELS.LOW },
+  { key: 'gst.reports.export', module: 'gst', action: 'export', description: 'Export GST reports for tax return filing', sensitivity: SENSITIVITY_LEVELS.HIGH },
+
+  // 21. Payment Gateway Fees
+  { key: 'gateway_fees.view', module: 'gateway_fees', action: 'view', description: 'View payment gateway fee configurations', sensitivity: SENSITIVITY_LEVELS.LOW },
+  { key: 'gateway_fees.manage', module: 'gateway_fees', action: 'manage', description: 'Modify gateway percentage/fixed fee rules and surcharges', sensitivity: SENSITIVITY_LEVELS.CRITICAL },
+  { key: 'gateway_fees.reports.view', module: 'gateway_fees', action: 'view', description: 'Inspect gateway fee ledger and merchant absorption telemetry', sensitivity: SENSITIVITY_LEVELS.LOW },
+  { key: 'gateway_fees.reports.export', module: 'gateway_fees', action: 'export', description: 'Export gateway fees reconciliation report', sensitivity: SENSITIVITY_LEVELS.HIGH },
+
+  // 22. Invoices & Tax Audit
+  { key: 'invoices.tax.view', module: 'system_settings', action: 'view', description: 'Inspect tax breakdown on all official invoices', sensitivity: SENSITIVITY_LEVELS.LOW },
+  { key: 'invoices.tax.manage', module: 'system_settings', action: 'manage', description: 'Manage tax invoice sequences and credit notes', sensitivity: SENSITIVITY_LEVELS.HIGH },
 ];
 
 /**
