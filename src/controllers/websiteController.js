@@ -250,12 +250,51 @@ export const updateTheme = async (req, res, next) => {
 
     if (isDraft) {
       theme.draftData = themeData;
+      theme.markModified('draftData');
       await WebsiteSettings.findOneAndUpdate({}, { hasUnpublishedDrafts: true }, { upsert: true });
     } else {
-      Object.assign(theme, themeData);
+      theme.set(themeData);
       theme.draftData = null;
+      theme.isPublished = true;
       theme.version = (theme.version || 1) + 1;
+
+      // Sync BrandingSettings identity tokens so both models stay in total harmony
+      try {
+        let branding = await BrandingSettings.findOne();
+        if (branding) {
+          if (themeData.palette?.primary) branding.identity.primaryColor = themeData.palette.primary;
+          if (themeData.palette?.secondary) branding.identity.secondaryColor = themeData.palette.secondary;
+          if (themeData.palette?.accent) branding.identity.accentColor = themeData.palette.accent;
+          if (themeData.palette?.backgroundLight) branding.identity.backgroundColorLight = themeData.palette.backgroundLight;
+          if (themeData.palette?.backgroundDark) branding.identity.backgroundColorDark = themeData.palette.backgroundDark;
+          if (themeData.palette?.textPrimaryLight) branding.identity.textColorLight = themeData.palette.textPrimaryLight;
+          if (themeData.palette?.textPrimaryDark) branding.identity.textColorDark = themeData.palette.textPrimaryDark;
+          if (themeData.typography?.headingFont) branding.identity.headingFont = themeData.typography.headingFont;
+          if (themeData.typography?.bodyFont) branding.identity.bodyFont = themeData.typography.bodyFont;
+          if (themeData.buttonStyles?.borderRadius) branding.identity.borderRadius = themeData.buttonStyles.borderRadius;
+          branding.markModified('identity');
+          await branding.save();
+        }
+      } catch (err) {
+        console.error('Failed to sync branding identity with theme:', err);
+      }
     }
+
+    // Explicitly mark all nested Mongoose paths as modified
+    theme.markModified('palette');
+    theme.markModified('typography');
+    theme.markModified('buttonStyles');
+    theme.markModified('cardStyles');
+    theme.markModified('inputStyles');
+    theme.markModified('headerStyles');
+    theme.markModified('footerStyles');
+    theme.markModified('layout');
+    theme.markModified('productCardStyles');
+    theme.markModified('badgeStyles');
+    theme.markModified('animationStyles');
+    theme.markModified('componentStyles');
+    theme.markModified('festivalTheme');
+    theme.markModified('draftData');
 
     await theme.save();
     websiteCache.clearAll();
@@ -343,7 +382,33 @@ export const resetThemeToDefault = async (req, res, next) => {
       colors: {},
     };
     theme.draftData = null;
+    theme.isPublished = true;
     theme.version = (theme.version || 1) + 1;
+
+    // Explicitly mark all nested Mongoose paths as modified
+    theme.markModified('palette');
+    theme.markModified('typography');
+    theme.markModified('buttonStyles');
+    theme.markModified('cardStyles');
+    theme.markModified('inputStyles');
+    theme.markModified('headerStyles');
+    theme.markModified('footerStyles');
+    theme.markModified('festivalTheme');
+    theme.markModified('draftData');
+
+    try {
+      let branding = await BrandingSettings.findOne();
+      if (branding) {
+        branding.identity.primaryColor = defaultData.palette.primary;
+        branding.identity.secondaryColor = defaultData.palette.secondary;
+        branding.identity.accentColor = defaultData.palette.accent;
+        branding.identity.headingFont = defaultData.typography.headingFont;
+        branding.identity.bodyFont = defaultData.typography.bodyFont;
+        branding.identity.borderRadius = defaultData.buttonStyles.borderRadius;
+        branding.markModified('identity');
+        await branding.save();
+      }
+    } catch {}
 
     await theme.save();
     websiteCache.clearAll();
