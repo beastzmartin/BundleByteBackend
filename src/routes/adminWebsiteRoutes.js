@@ -51,7 +51,7 @@ router.use(protect);
 // Branding Management
 router.put('/branding', requireWebsitePermission('branding_manager'), updateBranding);
 
-// Theme & Appearance Management
+// Theme Management
 router.get('/theme/presets', requireWebsitePermission('branding_manager'), getThemePresets);
 router.post('/theme/reset', requireWebsitePermission('branding_manager'), resetThemeToDefault);
 router.put('/theme', requireWebsitePermission('branding_manager'), updateTheme);
