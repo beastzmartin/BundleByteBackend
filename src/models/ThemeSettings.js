@@ -75,6 +75,31 @@ const themeSettingsSchema = new mongoose.Schema(
       contentPadding: { type: String, default: '1.5rem' },
       sectionSpacing: { type: String, default: '4rem' },
     },
+    productCardStyles: {
+      borderRadius: { type: String, default: '1rem' },
+      shadow: { type: String, default: 'md' },
+      borderWidth: { type: String, default: '1px' },
+      hoverEffect: { type: String, default: 'lift' }, // 'lift', 'zoom', 'glow', 'none'
+      badgePosition: { type: String, default: 'top-right' },
+      showRating: { type: Boolean, default: true },
+      showSalesBadge: { type: Boolean, default: true },
+    },
+    badgeStyles: {
+      borderRadius: { type: String, default: '9999px' },
+      fontWeight: { type: String, default: '700' },
+      textTransform: { type: String, default: 'uppercase' }, // 'none', 'uppercase', 'capitalize'
+      styleVariant: { type: String, default: 'subtle' }, // 'solid', 'subtle', 'outline'
+    },
+    animationStyles: {
+      transitionSpeed: { type: String, default: 'normal' }, // 'fast', 'normal', 'smooth'
+      enableHoverLift: { type: Boolean, default: true },
+      enableGlow: { type: Boolean, default: true },
+      enableSmoothScroll: { type: Boolean, default: true },
+    },
+    componentStyles: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
     // Festival Theme System
     festivalTheme: {
       activeFestival: {
