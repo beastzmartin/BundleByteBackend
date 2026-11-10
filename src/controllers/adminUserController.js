@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Order from '../models/Order.js';
 import Wallet from '../models/Wallet.js';
@@ -7,6 +9,8 @@ import Subscription from '../models/Subscription.js';
 import SupportTicket from '../models/SupportTicket.js';
 import AuditLog from '../models/AuditLog.js';
 import { logAudit } from '../middleware/audit.js';
+import { ENV } from '../config/environment.js';
+import { sendPasswordResetEmail } from '../services/emailService.js';
 
 /**
  * GET /api/admin/users
@@ -436,6 +440,210 @@ export const addAdminNote = async (req, res, next) => {
       success: true,
       message: 'Admin note recorded',
       adminNotes: user.adminNotes,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/admin/users/:id/password
+ * Administrator sets a user's password directly
+ */
+export const adminChangeUserPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newPassword, revokeSessions = true } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long',
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Role safety guard
+    if (user.role === 'super_admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only a Super Administrator can change credentials of another Super Administrator.',
+      });
+    }
+
+    user.password = newPassword;
+    if (!user.authProviders) user.authProviders = [];
+    if (!user.authProviders.includes('local')) user.authProviders.push('local');
+
+    if (revokeSessions) {
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+    }
+
+    user.forcePasswordReset = false;
+    user.failedLoginAttempts = 0;
+    user.lockUntil = null;
+    await user.save();
+
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'ADMIN_MANUALLY_SET_USER_PASSWORD',
+      entity: 'User',
+      entityId: user._id.toString(),
+      details: {
+        targetUserEmail: user.email,
+        revokedSessions: revokeSessions,
+      },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Password for ${user.name || user.email} has been successfully updated.`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/admin/users/:id/impersonate
+ * Administrator logs in as a user (Masquerade mode)
+ */
+export const adminImpersonateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (id === req.user._id.toString()) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already logged into your own account.',
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Target user not found' });
+    }
+
+    if (user.role === 'super_admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to impersonate a Super Administrator.',
+      });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot log into a banned account. Please unban the user first.',
+      });
+    }
+
+    const tokenPayload = {
+      id: user._id,
+      role: user.role,
+      tokenVersion: user.tokenVersion || 0,
+      impersonatedBy: req.user._id,
+      impersonatorName: req.user.name,
+      impersonatorEmail: req.user.email,
+    };
+
+    const token = jwt.sign(tokenPayload, ENV.JWT_SECRET, {
+      expiresIn: ENV.JWT_EXPIRE,
+    });
+
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'ADMIN_USER_IMPERSONATION_STARTED',
+      entity: 'User',
+      entityId: user._id.toString(),
+      details: {
+        impersonatedUserEmail: user.email,
+        impersonatedUserRole: user.role,
+      },
+      req,
+    });
+
+    const userSanitized = {
+      id: user._id,
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      avatar: user.avatar,
+      phone: user.phone,
+      isEmailVerified: user.isEmailVerified,
+      billingAddress: user.billingAddress,
+      createdAt: user.createdAt,
+      authProviders: user.authProviders || ['local'],
+      googleId: user.googleId || null,
+      googleEmail: user.googleEmail || '',
+      telegramId: user.telegramId || null,
+      telegramUsername: user.telegramUsername || '',
+      registrationMethod: user.registrationMethod || 'local',
+      hasPassword: Boolean(user.password || (user.authProviders && user.authProviders.includes('local'))),
+    };
+
+    res.status(200).json({
+      success: true,
+      message: `Impersonation active. Logged in as ${user.name || user.email}.`,
+      token,
+      user: userSanitized,
+      impersonator: {
+        id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/admin/users/:id/send-reset-email
+ * Dispatch password reset email to user from admin panel
+ */
+export const adminSendPasswordResetEmail = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const resetToken = crypto.randomBytes(24).toString('hex');
+    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.resetPasswordExpire = new Date(Date.now() + 30 * 60 * 1000); // 30 mins
+    await user.save();
+
+    sendPasswordResetEmail(user, resetToken).catch((err) =>
+      console.error('Failed to send admin-triggered reset email:', err)
+    );
+
+    await logAudit({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'ADMIN_DISPATCHED_PASSWORD_RESET_EMAIL',
+      entity: 'User',
+      entityId: user._id.toString(),
+      details: { targetEmail: user.email },
+      req,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Password reset instructions have been dispatched to ${user.email}.`,
     });
   } catch (error) {
     next(error);
