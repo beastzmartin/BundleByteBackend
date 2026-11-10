@@ -16,9 +16,44 @@ const paymentVerificationSchema = new mongoose.Schema(
     },
     paymentType: {
       type: String,
-      enum: ['binance_usdt', 'upi_utr'],
+      enum: ['binance_usdt', 'upi_utr', 'custom_payment', 'bank_transfer', 'manual_qr'],
+      default: 'manual_qr',
       required: true,
       index: true,
+    },
+    customMethod: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'CustomPaymentMethod',
+      default: null,
+      index: true,
+    },
+    customMethodName: {
+      type: String,
+      default: '',
+    },
+    screenshotUrl: {
+      type: String,
+      default: '',
+    },
+    senderName: {
+      type: String,
+      default: '',
+    },
+    senderAccount: {
+      type: String,
+      default: '',
+    },
+    senderBank: {
+      type: String,
+      default: '',
+    },
+    customerNotes: {
+      type: String,
+      default: '',
+    },
+    proofDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
     referenceCode: {
       type: String,

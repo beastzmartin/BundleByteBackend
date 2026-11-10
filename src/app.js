@@ -54,6 +54,8 @@ import emailRoutes from './routes/emailRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import supportAnalyticsRoutes from './routes/supportAnalyticsRoutes.js';
 import cronRoutes from './routes/cronRoutes.js';
+import customPaymentRoutes from './routes/customPaymentRoutes.js';
+import systemRoutes from './routes/systemRoutes.js';
 
 const app = express();
 
@@ -283,6 +285,12 @@ app.use('/api/email', emailRoutes);
 
 // Support Desk & Live Chat Routes
 app.use('/api/chat', chatRoutes);
+
+// Custom Payment Methods, Manual QR & Payment Requests
+app.use('/api', customPaymentRoutes);
+
+// Advanced Cache & Storage System Manager
+app.use('/api/admin', systemRoutes);
 app.use('/api/admin/support', supportAnalyticsRoutes);
 
 // Automated Vercel / External Cron Routes
