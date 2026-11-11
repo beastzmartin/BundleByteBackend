@@ -33,6 +33,7 @@ services:
       mongo:
         condition: service_healthy
     volumes:
+      - ./src:/app/src
       - backend_uploads:/app/uploads
       - backend_backups:/app/backups
     networks:

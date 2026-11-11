@@ -22,6 +22,8 @@ router.use(protect);
 
 // Self Team Profile & Workspace (Any authenticated staff/team member can access their own workspace)
 router.get('/me', getMyTeamProfile);
+router.get('/profile', getMyTeamProfile);
+router.get('/my-workspace', getMyTeamProfile);
 
 router.get('/metrics', requirePermission('team_management.view'), getTeamDashboardMetrics);
 router.get('/activity', requirePermission('team_management.view'), getTeamActivityLogs);
