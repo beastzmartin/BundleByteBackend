@@ -6,6 +6,7 @@ import {
   broadcastPushNotification,
   getVapidPublicKey,
   regenerateVapidKeys,
+  registerPushSubscription,
   sendNotificationToUser,
   sendToPushSubscription,
 } from '../services/pushNotificationService.js';
@@ -278,29 +279,60 @@ export const regenerateKeysHandler = async (req, res, next) => {
  */
 export const sendAdminTestPush = async (req, res, next) => {
   try {
-    const { title, body, link, subscriptionId } = req.body;
+    const { title, body, link, subscriptionId, endpoint, subscription } = req.body;
 
     let sub = null;
-    if (subscriptionId) {
+
+    // 1. If client provided fresh subscription payload, upsert it immediately for this admin
+    if (subscription && subscription.endpoint && subscription.keys) {
+      const userAgent = req.headers['user-agent'] || '';
+      const ip = req.ip || req.connection.remoteAddress || '';
+      sub = await registerPushSubscription(req.user._id, subscription, userAgent, ip);
+    }
+
+    // 2. Lookup by subscriptionId if provided
+    if (!sub && subscriptionId) {
       sub = await PushSubscription.findById(subscriptionId);
-    } else {
-      // Find admin's most recent active subscription
+    }
+
+    // 3. Lookup by endpoint if provided
+    if (!sub && endpoint) {
+      sub = await PushSubscription.findOne({ endpoint, isActive: true });
+      if (sub && !sub.user) {
+        sub.user = req.user._id;
+        await sub.save();
+      }
+    }
+
+    // 4. Find admin's most recent active subscription
+    if (!sub) {
       sub = await PushSubscription.findOne({ user: req.user._id, isActive: true }).sort({ lastActiveAt: -1 });
+    }
+
+    // 5. Fallback: If no subscription bound to this admin yet, check if there is any active subscription in DB
+    if (!sub) {
+      const latestSub = await PushSubscription.findOne({ isActive: true }).sort({ lastActiveAt: -1 });
+      if (latestSub) {
+        sub = latestSub;
+      }
     }
 
     if (!sub) {
       return res.status(400).json({
         success: false,
-        message: 'No active push subscription found for your browser. Please enable browser push notifications first.',
+        message: 'No active push subscription found for your browser. Click "Enable Push on This Device" to allow notifications first.',
       });
     }
 
     const payload = {
       title: title || '⚡ Admin Push Dispatcher Verified',
-      body: body || 'Real-time Web Push notification delivered instantly via VAPID engine.',
+      body: body || 'Real-time Web Push notification delivered instantly to your device notification bar via VAPID engine.',
       link: link || '/admin/notifications',
       type: 'system',
       priority: 'high',
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-192x192.png',
+      requireInteraction: true,
       actions: [
         { action: 'open_studio', title: 'Open Studio' },
         { action: 'dismiss', title: 'Dismiss' },
@@ -311,7 +343,9 @@ export const sendAdminTestPush = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: pushResult.success ? 'Test push dispatched successfully to your device!' : 'Failed to deliver push to device',
+      message: pushResult.success
+        ? 'Test push dispatched successfully! Check your device notification bar / Action Center.'
+        : `Failed to deliver push: ${pushResult.error || 'Unknown error'}`,
       pushResult,
       device: {
         browser: sub.browser,

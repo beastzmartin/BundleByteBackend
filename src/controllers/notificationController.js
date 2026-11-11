@@ -42,19 +42,36 @@ export const subscribePushHandler = async (req, res, next) => {
     const userAgent = req.headers['user-agent'] || '';
     const ip = req.ip || req.connection.remoteAddress || '';
 
-    const registered = await registerPushSubscription(req.user._id, subscription, userAgent, ip);
+    const userId = req.user?._id || null;
+    const registered = await registerPushSubscription(userId, subscription, userAgent, ip);
 
-    // Optional welcome notification on first device registration
-    const existingCount = await PushSubscription.countDocuments({ user: req.user._id });
-    if (existingCount <= 1) {
-      sendNotificationToUser({
-        userId: req.user._id,
-        title: '🎉 Push Notifications Activated!',
-        message: 'You will receive real-time alerts for orders, genuine license keys, and security updates directly on this device.',
-        type: 'system',
-        link: '/dashboard',
-        priority: 'normal',
-      }).catch((e) => console.log('Welcome push skipped:', e.message));
+    // Send immediate welcoming push notification to the user's notification bar
+    const welcomePayload = {
+      title: '🎉 BundleByte Notifications Activated!',
+      body: 'You will receive real-time alerts for instant license deliveries, flash discounts, and order updates directly in your notification bar.',
+      link: '/dashboard',
+      priority: 'high',
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-192x192.png',
+      requireInteraction: true,
+    };
+
+    if (userId) {
+      const existingCount = await PushSubscription.countDocuments({ user: userId });
+      if (existingCount <= 1) {
+        sendNotificationToUser({
+          userId,
+          title: welcomePayload.title,
+          message: welcomePayload.body,
+          type: 'system',
+          link: welcomePayload.link,
+          priority: 'high',
+        }).catch((e) => console.log('Welcome push skipped:', e.message));
+      } else {
+        sendToPushSubscription(registered, welcomePayload).catch(() => {});
+      }
+    } else {
+      sendToPushSubscription(registered, welcomePayload).catch(() => {});
     }
 
     return res.status(201).json({

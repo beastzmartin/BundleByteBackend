@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect } from '../middleware/auth.js';
+import { protect, optionalProtect } from '../middleware/auth.js';
 import {
   getVapidPublicKeyHandler,
   subscribePushHandler,
@@ -22,12 +22,13 @@ const router = express.Router();
 // Public: Get VAPID public key
 router.get('/vapid-public-key', getVapidPublicKeyHandler);
 
+// Public / Semi-Public: Push Subscriptions (supports guests & authenticated users)
+router.post('/subscribe', optionalProtect, subscribePushHandler);
+router.post('/unsubscribe', optionalProtect, unsubscribePushHandler);
+
 // Authenticated Routes
 router.use(protect);
 
-// Push Subscriptions
-router.post('/subscribe', subscribePushHandler);
-router.post('/unsubscribe', unsubscribePushHandler);
 router.get('/subscriptions', getMySubscriptionsHandler);
 router.delete('/subscriptions/:id', revokeSubscriptionHandler);
 

@@ -187,8 +187,8 @@ export const sendToPushSubscription = async (subscription, payload) => {
   const pushPayload = JSON.stringify({
     title: payload.title || 'BundleByte Notification',
     body: payload.body || payload.message || '',
-    icon: payload.icon || '/favicon.ico',
-    badge: payload.badge || '/favicon.ico',
+    icon: payload.icon || '/icons/icon-192x192.png',
+    badge: payload.badge || '/icons/icon-192x192.png',
     image: payload.imageUrl || payload.image || undefined,
     data: {
       url: payload.link || payload.actionUrl || '/',
@@ -198,12 +198,12 @@ export const sendToPushSubscription = async (subscription, payload) => {
       ...payload.data,
     },
     actions: payload.actions || [
-      { action: 'open', title: 'Open', icon: '/favicon.ico' },
+      { action: 'open', title: 'Open' },
       { action: 'dismiss', title: 'Dismiss' },
     ],
     tag: payload.tag || `bundlebyte-${payload.type || 'alert'}-${Date.now()}`,
     renotify: true,
-    requireInteraction: payload.priority === 'urgent' || payload.priority === 'high',
+    requireInteraction: payload.requireInteraction !== false,
   });
 
   try {
