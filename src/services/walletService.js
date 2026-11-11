@@ -3,6 +3,7 @@ import Wallet from '../models/Wallet.js';
 import WalletTransaction from '../models/WalletTransaction.js';
 import CashbackTransaction from '../models/CashbackTransaction.js';
 import Notification from '../models/Notification.js';
+import { notifyWalletTransaction } from './pushNotificationService.js';
 
 /**
  * Get or automatically create a wallet for a user
@@ -92,13 +93,13 @@ export const creditWallet = async ({
 
   // Notify customer
   try {
-    await Notification.create({
+    notifyWalletTransaction({
       user: userId,
-      title: `Wallet Credited (+₹${(amountPaise / 100).toFixed(2)})`,
-      message: `${description}. New available balance: ₹${(newBalance / 100).toFixed(2)}`,
-      type: 'account',
-      metadata: { transactionId, newBalancePaise: newBalance },
-    });
+      type: 'credit',
+      amount: (amountPaise / 100).toFixed(2),
+      balance: (newBalance / 100).toFixed(2),
+      description,
+    }).catch((e) => console.log('Wallet push error:', e.message));
   } catch (err) {
     console.error('Failed to create notification for wallet credit:', err.message);
   }
@@ -175,13 +176,13 @@ export const debitWallet = async ({
 
   // Notify customer
   try {
-    await Notification.create({
+    notifyWalletTransaction({
       user: userId,
-      title: `Wallet Debited (-₹${(amountPaise / 100).toFixed(2)})`,
-      message: `${description}. Remaining balance: ₹${(newBalance / 100).toFixed(2)}`,
-      type: 'account',
-      metadata: { transactionId, newBalancePaise: newBalance },
-    });
+      type: 'debit',
+      amount: (amountPaise / 100).toFixed(2),
+      balance: (newBalance / 100).toFixed(2),
+      description,
+    }).catch((e) => console.log('Wallet debit push error:', e.message));
   } catch (err) {
     console.error('Failed to create notification for wallet debit:', err.message);
   }

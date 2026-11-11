@@ -58,6 +58,8 @@ import customPaymentRoutes from './routes/customPaymentRoutes.js';
 import systemRoutes from './routes/systemRoutes.js';
 import adminBackupRoutes from './routes/adminBackupRoutes.js';
 import taxFeeRoutes from './routes/taxFeeRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
+import adminNotificationRoutes from './routes/adminNotificationRoutes.js';
 
 const app = express();
 
@@ -285,6 +287,8 @@ app.use('/api/admin/approvals', approvalRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/tax', taxFeeRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin/notifications', adminNotificationRoutes);
 
 // Support Desk & Live Chat Routes
 app.use('/api/chat', chatRoutes);

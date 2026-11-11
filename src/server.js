@@ -14,6 +14,7 @@ import { ensureDefaultTemplates } from './services/emailTemplateDefaults.js';
 import { ensureDefaultEmailProviders } from './services/providerManagerService.js';
 import { ensureCurrencySystemDefaults } from './services/currency/currencySeedService.js';
 import { ensureWebsiteSystemDefaults } from './services/website/websiteDefaultsService.js';
+import { initVapidKeys } from './services/pushNotificationService.js';
 
 // Start server (for Standalone / Local / Docker / VPS deployments)
 const startServer = async () => {
@@ -24,6 +25,7 @@ const startServer = async () => {
     await ensureDefaultEmailProviders();
     await ensureCurrencySystemDefaults();
     await ensureWebsiteSystemDefaults();
+    await initVapidKeys();
     await rbacService.seedSystemRolesAndDepartments();
 
     // Auto-seed if database is brand new (e.g. embedded memory server or empty DB)

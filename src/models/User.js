@@ -102,6 +102,17 @@ const userSchema = new mongoose.Schema(
       subscriptionAlerts: { type: Boolean, default: true },
       ticketUpdates: { type: Boolean, default: true },
     },
+    pushNotifications: {
+      enabled: { type: Boolean, default: true },
+      orderUpdates: { type: Boolean, default: true },
+      deliveryAlerts: { type: Boolean, default: true },
+      walletAlerts: { type: Boolean, default: true },
+      subscriptionAlerts: { type: Boolean, default: true },
+      ticketUpdates: { type: Boolean, default: true },
+      promoAlerts: { type: Boolean, default: true },
+      securityAlerts: { type: Boolean, default: true },
+      soundEnabled: { type: Boolean, default: true },
+    },
     authProviders: {
       type: [String],
       enum: ['local', 'google', 'telegram'],

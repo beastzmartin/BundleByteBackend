@@ -14,6 +14,7 @@
     "test:rbac": "node src/scripts/testEnterpriseRBAC.js",
     "test:support": "node src/scripts/testUnifiedSupport.js",
     "test:studio": "node src/scripts/testEmailTemplateStudio.js",
+    "test:push": "node src/scripts/testPushNotificationSystem.js",
     "build": "echo 'Backend build complete'"
   },
   "dependencies": {
@@ -32,7 +33,8 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.13",
-    "socket.io": "^4.8.4"
+    "socket.io": "^4.8.4",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.3"

@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import { ENV } from '../config/environment.js';
 import { queueEmail } from './emailService.js';
 import { getOrCreateInvoiceForOrder } from './invoiceService.js';
+import { notifyOrderConfirmed, notifyDigitalDeliveryReady } from './pushNotificationService.js';
 
 /**
  * Generates a short-lived cryptographically secure access token for customer vault retrieval
@@ -69,6 +70,11 @@ export const dispatchOrderConfirmationEmail = async ({ order, user }) => {
         userId: order.user.toString(),
       },
     });
+
+    // Real-time Push Notification & In-App Alert to customer and staff
+    notifyOrderConfirmed({ order, user: customerUser }).catch((e) =>
+      console.log('Order push notification error:', e.message)
+    );
 
     return { success: true, invoiceId: invoice._id };
   } catch (err) {
@@ -233,6 +239,12 @@ export const dispatchDigitalDeliveryEmail = async ({ order, user, deliveryRecord
       deliveryNotification.emailLog = emailRes.logId;
       await deliveryNotification.save();
     }
+
+    // Real-time Push Notification & Vault Access Alert to customer
+    const mainTitle = items[0]?.productTitle || 'Digital License';
+    notifyDigitalDeliveryReady({ order, user: customerUser, productTitle: mainTitle }).catch((e) =>
+      console.log('Digital delivery push alert error:', e.message)
+    );
 
     return { success: true, notificationId: deliveryNotification._id };
   } catch (err) {

@@ -122,6 +122,18 @@ const websiteSettingSchema = new mongoose.Schema(
         default: 'Official tax receipt for verified digital software licenses. Registered in accordance with online merchant standards.',
       },
     },
+    pushNotificationConfig: {
+      enabled: { type: Boolean, default: true },
+      vapidPublicKey: { type: String, default: '' },
+      vapidPrivateKey: { type: String, default: '' },
+      vapidSubject: { type: String, default: 'mailto:notifications@bundlebyte.com' },
+      defaultIcon: { type: String, default: '/favicon.ico' },
+      defaultBadge: { type: String, default: '/favicon.ico' },
+      soundEnabled: { type: Boolean, default: true },
+      welcomeNotificationEnabled: { type: Boolean, default: true },
+      welcomeTitle: { type: String, default: '🎉 Welcome to BundleByte!' },
+      welcomeBody: { type: String, default: 'Browser alerts are enabled. You will receive real-time updates for orders, license keys, and instant deliveries.' },
+    },
   },
   {
     timestamps: true,
