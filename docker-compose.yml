@@ -45,8 +45,11 @@ services:
     image: mongo:7-jammy
     container_name: bundlebyte-mongo
     restart: unless-stopped
-    ports:
-      - "27017:27017"
+    expose:
+      - "27017"
+    # Uncomment below only if you need localhost-only DB access from the host machine:
+    # ports:
+    #   - "127.0.0.1:27017:27017"
     environment:
       - MONGO_INITDB_DATABASE=bundlebyte_db
     volumes:
