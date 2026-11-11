@@ -26,3 +26,4 @@ router.post('/regenerate-keys', regenerateKeysHandler);
 router.post('/send-test', sendAdminTestPush);
 
 export default router;
+

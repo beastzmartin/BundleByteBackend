@@ -80,3 +80,4 @@ pushSubscriptionSchema.methods.toWebPushFormat = function () {
 };
 
 export default mongoose.model('PushSubscription', pushSubscriptionSchema);
+

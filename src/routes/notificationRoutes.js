@@ -45,3 +45,4 @@ router.put('/preferences', updatePreferencesHandler);
 router.post('/test', sendTestPushHandler);
 
 export default router;
+
