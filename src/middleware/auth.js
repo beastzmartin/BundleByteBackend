@@ -118,11 +118,13 @@ export const sendTokenResponse = (user, statusCode, res, message = 'Success') =>
     sameSite: 'lax',
   };
 
+  const staffRoles = ['super_admin', 'admin', 'manager', 'inventory_manager', 'support_agent'];
   const userSanitized = {
     id: user._id,
     name: user.name,
     email: user.email,
     role: user.role,
+    isTeamMember: staffRoles.includes(user.role),
     avatar: user.avatar,
     phone: user.phone,
     isEmailVerified: user.isEmailVerified,

@@ -4,8 +4,200 @@ import TeamRole from '../models/TeamRole.js';
 import Department from '../models/Department.js';
 import TeamInvitation from '../models/TeamInvitation.js';
 import AuditLog from '../models/AuditLog.js';
+import SupportTicket from '../models/SupportTicket.js';
+import ApprovalRequest from '../models/ApprovalRequest.js';
+import Order from '../models/Order.js';
 import rbacService from '../services/rbacService.js';
-import { SENSITIVITY_LEVELS } from '../constants/permissionsRegistry.js';
+import {
+  PERMISSION_MODULES,
+  PERMISSIONS_LIST,
+  SENSITIVITY_LEVELS,
+} from '../constants/permissionsRegistry.js';
+
+/**
+ * Helper to annotate every permission in the system for a given team member and resolved effective permissions
+ */
+export const annotateUserPermissions = (member, effective) => {
+  const isSuperAdmin = effective.isSuperAdmin || (effective.allowed && effective.allowed.includes('*'));
+  const allowedSet = new Set(effective.allowed || []);
+  const deniedSet = new Set(effective.denied || []);
+
+  const rolePermMap = new Map();
+  if (member && member.roles && Array.isArray(member.roles)) {
+    member.roles.forEach((r) => {
+      if (r && r.permissions && Array.isArray(r.permissions)) {
+        r.permissions.forEach((pk) => {
+          if (!rolePermMap.has(pk)) rolePermMap.set(pk, r.name || r.slug);
+        });
+      }
+    });
+  }
+
+  const overrideMap = new Map();
+  if (member && member.directPermissionOverrides && Array.isArray(member.directPermissionOverrides)) {
+    member.directPermissionOverrides.forEach((o) => {
+      if (o && o.permissionKey) {
+        overrideMap.set(o.permissionKey, o);
+      }
+    });
+  }
+
+  return PERMISSIONS_LIST.map((p) => {
+    let granted = false;
+    let source = 'default_deny';
+    let sourceDetails = 'Denied by default';
+
+    if (overrideMap.has(p.key)) {
+      const ovr = overrideMap.get(p.key);
+      if (ovr.effect === 'deny') {
+        granted = false;
+        source = 'override_deny';
+        sourceDetails = ovr.reason ? `Direct deny override: ${ovr.reason}` : 'Explicit administrative deny override';
+      } else {
+        granted = true;
+        source = 'override_allow';
+        sourceDetails = ovr.reason ? `Direct allow override: ${ovr.reason}` : 'Explicit administrative allow override';
+      }
+    } else if (deniedSet.has(p.key) || deniedSet.has('*')) {
+      granted = false;
+      source = 'denied';
+      sourceDetails = 'Explicit role/account restriction';
+    } else if (isSuperAdmin) {
+      granted = true;
+      source = 'wildcard';
+      sourceDetails = 'Full Super Admin access (*)';
+    } else if (rolePermMap.has(p.key) || allowedSet.has(p.key) || allowedSet.has('*')) {
+      granted = true;
+      source = 'role';
+      sourceDetails = rolePermMap.get(p.key) ? `Role: ${rolePermMap.get(p.key)}` : 'Assigned System Role';
+    }
+
+    return {
+      ...p,
+      granted,
+      source,
+      sourceDetails,
+    };
+  });
+};
+
+/**
+ * @desc Get currently authenticated team member profile, assigned queues, and full permission matrix
+ * @route GET /api/admin/team/me or /api/team/me
+ */
+export const getMyTeamProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // 1. Find or create default TeamMember record for this user if they are staff
+    let member = await TeamMember.findOne({ user: userId })
+      .populate('user', 'name email avatar role isActive isSuspended lastLoginAt createdAt')
+      .populate('roles')
+      .populate('department')
+      .populate('reportingManager', 'name email avatar jobTitle');
+
+    // If user has administrative or staff role but doesn't have a TeamMember doc, seed one
+    const staffRoles = ['super_admin', 'admin', 'manager', 'support_agent', 'inventory_manager'];
+    if (!member && staffRoles.includes(req.user.role)) {
+      const systemRole = await TeamRole.findOne({ slug: req.user.role });
+      const adminDept = (await Department.findOne({ slug: 'administration' })) || (await Department.findOne());
+
+      member = await TeamMember.create({
+        user: userId,
+        employeeCode: `BB-EMP-${String(Math.floor(1000 + Math.random() * 9000))}`,
+        jobTitle:
+          req.user.role === 'super_admin'
+            ? 'Chief Executive Officer / Super Admin'
+            : req.user.role === 'admin'
+            ? 'System Administrator'
+            : `${req.user.role.replace('_', ' ').toUpperCase()}`,
+        department: adminDept?._id || null,
+        roles: systemRole ? [systemRole._id] : [],
+        status: 'active',
+      });
+
+      member = await TeamMember.findById(member._id)
+        .populate('user', 'name email avatar role isActive isSuspended lastLoginAt createdAt')
+        .populate('roles')
+        .populate('department')
+        .populate('reportingManager', 'name email avatar jobTitle');
+    }
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active team member profile found for this account. Please contact an administrator.',
+      });
+    }
+
+    // Touch member's lastActiveAt timestamp
+    try {
+      member.lastActiveAt = new Date();
+      await member.save();
+    } catch (_) {}
+
+    // 2. Resolve full effective permissions
+    const effectivePermissions = await rbacService.getUserEffectivePermissions(userId);
+
+    // 3. Annotate full permission matrix
+    const permissionsMatrix = annotateUserPermissions(member, effectivePermissions);
+
+    // 4. Queues & Work Metrics
+    let assignedTicketsCount = 0;
+    let deptTicketsCount = 0;
+    try {
+      assignedTicketsCount = await SupportTicket.countDocuments({
+        assignedTo: userId,
+        status: { $in: ['open', 'in_progress', 'assigned', 'pending_customer'] },
+      });
+      if (member.department?._id) {
+        deptTicketsCount = await SupportTicket.countDocuments({
+          department: member.department._id,
+          status: { $in: ['open', 'in_progress', 'assigned'] },
+        });
+      }
+    } catch (_) {}
+
+    let pendingApprovalsCount = 0;
+    try {
+      pendingApprovalsCount = await ApprovalRequest.countDocuments({
+        status: 'pending',
+      });
+    } catch (_) {}
+
+    let pendingFulfillmentCount = 0;
+    try {
+      pendingFulfillmentCount = await Order.countDocuments({
+        orderStatus: { $in: ['processing', 'payment_confirmed', 'pending_fulfillment'] },
+      });
+    } catch (_) {}
+
+    // 5. Recent Personal Audit Activities
+    let recentActivities = [];
+    try {
+      recentActivities = await AuditLog.find({ actor: userId })
+        .sort({ createdAt: -1 })
+        .limit(15);
+    } catch (_) {}
+
+    return res.status(200).json({
+      success: true,
+      member,
+      effectivePermissions,
+      modules: PERMISSION_MODULES,
+      permissionsMatrix,
+      assignedQueues: {
+        assignedTickets: assignedTicketsCount,
+        departmentTickets: deptTicketsCount,
+        pendingApprovals: pendingApprovalsCount,
+        pendingFulfillment: pendingFulfillmentCount,
+      },
+      recentActivities,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 /**
  * @desc Get Team Dashboard metrics & overview stats
@@ -146,6 +338,9 @@ export const getTeamMemberById = async (req, res) => {
     // Resolve full effective permissions for this member
     const effectivePermissions = await rbacService.getUserEffectivePermissions(member.user._id);
 
+    // Annotate full permissions matrix
+    const permissionsMatrix = annotateUserPermissions(member, effectivePermissions);
+
     // Member's recent audit activities
     const memberActivities = await AuditLog.find({ actor: member.user._id })
       .sort({ createdAt: -1 })
@@ -155,6 +350,8 @@ export const getTeamMemberById = async (req, res) => {
       success: true,
       member,
       effectivePermissions,
+      modules: PERMISSION_MODULES,
+      permissionsMatrix,
       memberActivities,
     });
   } catch (err) {
@@ -530,6 +727,132 @@ export const getTeamActivityLogs = async (req, res) => {
         limit: Number(limit),
         pages: Math.ceil(total / Number(limit)),
       },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * @desc Add or update direct permission override for a team member
+ * @route POST /api/admin/team/members/:id/overrides
+ */
+export const addDirectOverride = async (req, res) => {
+  try {
+    const { permissionKey, effect, reason } = req.body;
+    if (!permissionKey || !['allow', 'deny'].includes(effect)) {
+      return res.status(400).json({ success: false, message: 'Valid permissionKey and effect (allow/deny) are required' });
+    }
+
+    const member = await TeamMember.findById(req.params.id)
+      .populate('user')
+      .populate('roles')
+      .populate('department');
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Team member not found' });
+    }
+
+    // Privilege escalation check if effect is 'allow'
+    if (effect === 'allow') {
+      const escalationCheck = await rbacService.checkPrivilegeEscalation(req.user._id, [permissionKey]);
+      if (!escalationCheck.allowed) {
+        return res.status(403).json({ success: false, message: escalationCheck.message });
+      }
+    }
+
+    // Filter out previous override for the same permissionKey
+    member.directPermissionOverrides = (member.directPermissionOverrides || []).filter(
+      (o) => o.permissionKey !== permissionKey
+    );
+
+    // Append new override
+    member.directPermissionOverrides.push({
+      permissionKey,
+      effect,
+      reason: reason || '',
+      grantedBy: req.user._id,
+      createdAt: new Date(),
+    });
+
+    await member.save();
+
+    await rbacService.recordAuditLog({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'PERMISSION_OVERRIDE_ADDED',
+      entity: 'TeamMember',
+      entityId: member._id.toString(),
+      details: { email: member.user?.email, permissionKey, effect, reason },
+      severity: SENSITIVITY_LEVELS.HIGH,
+      ipAddress: req.ip || '',
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    const effectivePermissions = await rbacService.getUserEffectivePermissions(member.user._id);
+    const permissionsMatrix = annotateUserPermissions(member, effectivePermissions);
+
+    return res.status(200).json({
+      success: true,
+      message: `Direct ${effect.toUpperCase()} override applied for ${permissionKey}`,
+      member,
+      effectivePermissions,
+      permissionsMatrix,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * @desc Remove a direct permission override from a team member
+ * @route DELETE /api/admin/team/members/:id/overrides/:overrideId
+ */
+export const removeDirectOverride = async (req, res) => {
+  try {
+    const member = await TeamMember.findById(req.params.id)
+      .populate('user')
+      .populate('roles')
+      .populate('department');
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Team member not found' });
+    }
+
+    const initialLength = (member.directPermissionOverrides || []).length;
+    member.directPermissionOverrides = (member.directPermissionOverrides || []).filter(
+      (o) => o._id.toString() !== req.params.overrideId && o.permissionKey !== req.params.overrideId
+    );
+
+    if (member.directPermissionOverrides.length === initialLength) {
+      return res.status(404).json({ success: false, message: 'Direct override not found' });
+    }
+
+    await member.save();
+
+    await rbacService.recordAuditLog({
+      actor: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: req.user.role,
+      action: 'PERMISSION_OVERRIDE_REMOVED',
+      entity: 'TeamMember',
+      entityId: member._id.toString(),
+      details: { email: member.user?.email, overrideId: req.params.overrideId },
+      severity: SENSITIVITY_LEVELS.MEDIUM,
+      ipAddress: req.ip || '',
+      userAgent: req.headers['user-agent'] || '',
+    });
+
+    const effectivePermissions = await rbacService.getUserEffectivePermissions(member.user._id);
+    const permissionsMatrix = annotateUserPermissions(member, effectivePermissions);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Direct override removed successfully',
+      member,
+      effectivePermissions,
+      permissionsMatrix,
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

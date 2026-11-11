@@ -282,6 +282,7 @@ app.use('/api/admin/banners', adminBannerRoutes);
 
 // Enterprise RBAC & Team Management Routes
 app.use('/api/admin/team', teamRoutes);
+app.use('/api/team', teamRoutes);
 app.use('/api/admin/roles', teamRoleRoutes);
 app.use('/api/admin/departments', departmentRoutes);
 app.use('/api/admin/invitations', invitationRoutes);
