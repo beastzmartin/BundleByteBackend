@@ -97,8 +97,7 @@ export const getMyTeamProfile = async (req, res) => {
       .populate('reportingManager', 'name email avatar jobTitle');
 
     // If user has administrative or staff role but doesn't have a TeamMember doc, seed one
-    const staffRoles = ['super_admin', 'admin', 'manager', 'support_agent', 'inventory_manager'];
-    if (!member && staffRoles.includes(req.user.role)) {
+    if (!member && req.user.role !== 'customer') {
       const systemRole = await TeamRole.findOne({ slug: req.user.role });
       const adminDept = (await Department.findOne({ slug: 'administration' })) || (await Department.findOne());
 
@@ -110,7 +109,7 @@ export const getMyTeamProfile = async (req, res) => {
             ? 'Chief Executive Officer / Super Admin'
             : req.user.role === 'admin'
             ? 'System Administrator'
-            : `${req.user.role.replace('_', ' ').toUpperCase()}`,
+            : `${req.user.role.replace(/_/g, ' ').toUpperCase()}`,
         department: adminDept?._id || null,
         roles: systemRole ? [systemRole._id] : [],
         status: 'active',

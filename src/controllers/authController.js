@@ -164,8 +164,7 @@ export const getMe = async (req, res) => {
   delete userObj.password;
   delete userObj.mfaSecret;
 
-  const staffRoles = ['super_admin', 'admin', 'manager', 'inventory_manager', 'support_agent'];
-  userObj.isTeamMember = staffRoles.includes(user.role);
+  userObj.isTeamMember = user.role !== 'customer';
 
   res.status(200).json({
     success: true,

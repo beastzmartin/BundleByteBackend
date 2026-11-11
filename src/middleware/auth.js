@@ -118,13 +118,12 @@ export const sendTokenResponse = (user, statusCode, res, message = 'Success') =>
     sameSite: 'lax',
   };
 
-  const staffRoles = ['super_admin', 'admin', 'manager', 'inventory_manager', 'support_agent'];
   const userSanitized = {
     id: user._id,
     name: user.name,
     email: user.email,
     role: user.role,
-    isTeamMember: staffRoles.includes(user.role),
+    isTeamMember: user.role !== 'customer',
     avatar: user.avatar,
     phone: user.phone,
     isEmailVerified: user.isEmailVerified,
@@ -148,14 +147,14 @@ export const sendTokenResponse = (user, statusCode, res, message = 'Success') =>
 };
 
 export const adminOnly = (req, res, next) => {
-  const allowedAdminRoles = [
-    'super_admin',
-    'admin',
-    'manager',
-    'inventory_manager',
-    'support_agent',
-  ];
-  if (!req.user || !allowedAdminRoles.includes(req.user.role)) {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Access denied: Authentication required',
+    });
+  }
+  // Any role other than 'customer' has staff/administrative clearance
+  if (req.user.role === 'customer' && !req.user.isTeamMember) {
     return res.status(403).json({
       success: false,
       message: 'Access denied: Administrative privileges required',
