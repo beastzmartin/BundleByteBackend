@@ -7,7 +7,7 @@ import {
   updateOrderStatus,
 } from '../controllers/orderController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -15,9 +15,9 @@ router.use(protect);
 
 router.post('/', createOrder);
 router.get('/my', getMyOrders);
-router.get('/all', authorize('admin', 'manager'), getAllOrders);
+router.get('/all', requirePermission('orders.view'), getAllOrders);
 router.get('/:id', getOrderById);
-router.put('/:id/status', authorize('admin', 'manager'), updateOrderStatus);
+router.put('/:id/status', requirePermission('orders.update'), updateOrderStatus);
 
 export default router;
 

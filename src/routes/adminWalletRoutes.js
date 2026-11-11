@@ -7,18 +7,17 @@ import {
   exportWalletLedgerCSV,
 } from '../controllers/adminWalletController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
 router.use(protect);
-router.use(authorize('admin', 'manager'));
 
-router.get('/', getAllWallets);
-router.get('/export', exportWalletLedgerCSV);
-router.get('/:userId', getUserWalletDetails);
-router.post('/:userId/credit', adminCreditWallet);
-router.post('/:userId/debit', adminDebitWallet);
+router.get('/', requirePermission('wallets.view'), getAllWallets);
+router.get('/export', requirePermission('wallets.export'), exportWalletLedgerCSV);
+router.get('/:userId', requirePermission('wallets.view'), getUserWalletDetails);
+router.post('/:userId/credit', requirePermission('wallets.manage'), adminCreditWallet);
+router.post('/:userId/debit', requirePermission('wallets.manage'), adminDebitWallet);
 
 export default router;
 

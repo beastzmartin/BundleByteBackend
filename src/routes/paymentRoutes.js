@@ -8,7 +8,7 @@ import {
   getOrderPaymentStatus,
 } from '../controllers/paymentController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -20,7 +20,7 @@ router.post('/verify', protect, verifyPayment);
 router.post('/binance/submit-txid', protect, submitBinanceTxId);
 router.post('/upi/submit-utr', protect, submitUpiUtr);
 router.get('/status/:orderId', protect, getOrderPaymentStatus);
-router.get('/transactions', protect, authorize('admin'), getTransactions);
+router.get('/transactions', protect, requirePermission('payments.view'), getTransactions);
 
 export default router;
 

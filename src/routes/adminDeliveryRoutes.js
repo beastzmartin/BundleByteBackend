@@ -6,17 +6,16 @@ import {
   getDeliveryAuditHistory,
 } from '../controllers/deliveryController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
 router.use(protect);
-router.use(authorize('admin', 'manager'));
 
-router.get('/pending', getPendingManualQueue);
-router.get('/history', getDeliveryAuditHistory);
-router.post('/:orderId/manual', fulfillManualOrderItem);
-router.post('/:orderId/redeliver', redeliverOrderItem);
+router.get('/pending', requirePermission('orders.view'), getPendingManualQueue);
+router.get('/history', requirePermission('orders.view'), getDeliveryAuditHistory);
+router.post('/:orderId/manual', requirePermission('orders.manage'), fulfillManualOrderItem);
+router.post('/:orderId/redeliver', requirePermission('orders.manage'), redeliverOrderItem);
 
 export default router;
 

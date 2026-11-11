@@ -11,23 +11,22 @@ import {
   seedTrustedBankRecord,
 } from '../controllers/adminBinanceController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
 router.use(protect);
-router.use(authorize('admin', 'manager'));
 
-router.get('/status', getBinanceStatus);
-router.get('/deposits', getBinanceLiveDeposits);
-router.get('/verifications', getVerifications);
-router.post('/verify/:id/approve', approveVerification);
-router.post('/verify/:id/reject', rejectVerification);
-router.post('/sync', syncBinanceDeposits);
-router.get('/config', getBinanceConfig);
-router.put('/config', updateBinanceConfig);
-router.post('/config', updateBinanceConfig);
-router.post('/seed-trusted-utr', seedTrustedBankRecord);
+router.get('/status', requirePermission('payments.view'), getBinanceStatus);
+router.get('/deposits', requirePermission('payments.view'), getBinanceLiveDeposits);
+router.get('/verifications', requirePermission('payments.view'), getVerifications);
+router.post('/verify/:id/approve', requirePermission('payments.approve'), approveVerification);
+router.post('/verify/:id/reject', requirePermission('payments.manage'), rejectVerification);
+router.post('/sync', requirePermission('payments.manage'), syncBinanceDeposits);
+router.get('/config', requirePermission('payments.view'), getBinanceConfig);
+router.put('/config', requirePermission('payments.configure'), updateBinanceConfig);
+router.post('/config', requirePermission('payments.configure'), updateBinanceConfig);
+router.post('/seed-trusted-utr', requirePermission('payments.manage'), seedTrustedBankRecord);
 
 export default router;
 

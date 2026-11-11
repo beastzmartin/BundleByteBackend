@@ -6,7 +6,8 @@ import {
   updateWhatsAppStatus,
   fulfillWhatsAppOrder,
 } from '../controllers/whatsappDeliveryController.js';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -15,9 +16,9 @@ router.get('/order/:orderId', protect, getOrderWhatsAppDelivery);
 router.post('/order/:orderId/contacted', protect, markCustomerContacted);
 
 // Admin queue endpoints
-router.get('/admin/queue', protect, adminOnly, listWhatsAppDeliveries);
-router.put('/admin/:id/status', protect, adminOnly, updateWhatsAppStatus);
-router.post('/admin/:id/fulfill', protect, adminOnly, fulfillWhatsAppOrder);
+router.get('/admin/queue', protect, requirePermission('orders.view'), listWhatsAppDeliveries);
+router.put('/admin/:id/status', protect, requirePermission('orders.update'), updateWhatsAppStatus);
+router.post('/admin/:id/fulfill', protect, requirePermission('orders.manage'), fulfillWhatsAppOrder);
 
 export default router;
 

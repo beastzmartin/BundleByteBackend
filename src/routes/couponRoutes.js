@@ -7,7 +7,7 @@ import {
   deleteCoupon,
 } from '../controllers/couponController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -15,11 +15,11 @@ const router = express.Router();
 router.post('/validate', validateCoupon);
 
 // Admin routes
-router.use(protect, authorize('admin', 'manager'));
-router.get('/', getCoupons);
-router.post('/', createCoupon);
-router.put('/:id', updateCoupon);
-router.delete('/:id', deleteCoupon);
+router.use(protect);
+router.get('/', requirePermission('marketing.view'), getCoupons);
+router.post('/', requirePermission('marketing.create'), createCoupon);
+router.put('/:id', requirePermission('marketing.update'), updateCoupon);
+router.delete('/:id', requirePermission('marketing.delete'), deleteCoupon);
 
 export default router;
 

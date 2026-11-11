@@ -1,5 +1,6 @@
 import express from 'express';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/rbac.js';
 import {
   getPushStats,
   getSubscribersList,
@@ -14,16 +15,15 @@ import {
 const router = express.Router();
 
 router.use(protect);
-router.use(adminOnly);
 
-router.get('/stats', getPushStats);
-router.get('/subscribers', getSubscribersList);
-router.post('/broadcast', broadcastPushHandler);
-router.get('/broadcasts', getBroadcastLogs);
-router.get('/settings', getPushSettings);
-router.put('/settings', updatePushSettings);
-router.post('/regenerate-keys', regenerateKeysHandler);
-router.post('/send-test', sendAdminTestPush);
+router.get('/stats', requirePermission('marketing.view'), getPushStats);
+router.get('/subscribers', requirePermission('marketing.view'), getSubscribersList);
+router.post('/broadcast', requirePermission('marketing.create'), broadcastPushHandler);
+router.get('/broadcasts', requirePermission('marketing.view'), getBroadcastLogs);
+router.get('/settings', requirePermission('marketing.view'), getPushSettings);
+router.put('/settings', requirePermission('marketing.manage'), updatePushSettings);
+router.post('/regenerate-keys', requirePermission('system_settings.manage'), regenerateKeysHandler);
+router.post('/send-test', requirePermission('marketing.create'), sendAdminTestPush);
 
 export default router;
 

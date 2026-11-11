@@ -11,8 +11,13 @@ export const requireWebsitePermission = (requiredPermission) => {
 
     const { role, websitePermissions = [] } = req.user;
 
-    // Super Admin & Admin have unrestricted access
-    if (role === 'super_admin' || role === 'admin') {
+    // Super Admin has unrestricted access
+    if (role === 'super_admin' || req.user.isSuperAdmin) {
+      return next();
+    }
+
+    const effectivePerms = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+    if (effectivePerms.includes('*') || effectivePerms.includes('website_management.*') || effectivePerms.includes('website_management.manage') || effectivePerms.includes('website_management.view')) {
       return next();
     }
 

@@ -9,24 +9,25 @@ import {
   deleteAccount,
   bulkActionAccounts,
 } from '../controllers/adminAccountController.js';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect } from '../middleware/auth.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
-router.use(protect, adminOnly);
+router.use(protect);
 
 router.route('/')
-  .get(getAccountInventory)
-  .post(createSingleAccount);
+  .get(requirePermission('account_inventory.view'), getAccountInventory)
+  .post(requirePermission('account_inventory.create'), createSingleAccount);
 
-router.post('/preview', previewImport);
-router.post('/import', commitImport);
-router.post('/bulk-action', bulkActionAccounts);
+router.post('/preview', requirePermission('account_inventory.create'), previewImport);
+router.post('/import', requirePermission('account_inventory.create'), commitImport);
+router.post('/bulk-action', requirePermission('account_inventory.manage'), bulkActionAccounts);
 
 router.route('/:id')
-  .get(getAccountDetails)
-  .put(updateAccount)
-  .delete(deleteAccount);
+  .get(requirePermission('account_inventory.read'), getAccountDetails)
+  .put(requirePermission('account_inventory.update'), updateAccount)
+  .delete(requirePermission('account_inventory.delete'), deleteAccount);
 
 export default router;
 

@@ -1,6 +1,6 @@
 import express from 'express';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 import {
   getTaxConfig,
   updateTaxConfig,
@@ -22,17 +22,17 @@ router.get('/config', getTaxConfig);
 router.post('/calculate-quote', calculateQuote);
 
 // Protected Admin Routes
-router.put('/config', protect, authorize('admin', 'super_admin'), updateTaxConfig);
+router.put('/config', protect, requirePermission('gst.settings.manage'), updateTaxConfig);
 
 router.get('/categories', getTaxCategories);
-router.post('/categories', protect, authorize('admin', 'super_admin'), createTaxCategory);
-router.put('/categories/:id', protect, authorize('admin', 'super_admin'), updateTaxCategory);
-router.delete('/categories/:id', protect, authorize('admin', 'super_admin'), deleteTaxCategory);
+router.post('/categories', protect, requirePermission('gst.rules.manage'), createTaxCategory);
+router.put('/categories/:id', protect, requirePermission('gst.rules.manage'), updateTaxCategory);
+router.delete('/categories/:id', protect, requirePermission('gst.rules.manage'), deleteTaxCategory);
 
-router.get('/gateway-fees', protect, authorize('admin', 'super_admin'), getGatewayFeeConfigs);
-router.put('/gateway-fees/:key', protect, authorize('admin', 'super_admin'), updateGatewayFeeConfig);
+router.get('/gateway-fees', protect, requirePermission('gateway_fees.view'), getGatewayFeeConfigs);
+router.put('/gateway-fees/:key', protect, requirePermission('gateway_fees.manage'), updateGatewayFeeConfig);
 
-router.get('/reports', protect, authorize('admin', 'super_admin'), getFinancialGstReports);
-router.get('/reports/export-csv', protect, authorize('admin', 'super_admin'), exportGstReportCsv);
+router.get('/reports', protect, requirePermission('reports_analytics.view'), getFinancialGstReports);
+router.get('/reports/export-csv', protect, requirePermission('reports_analytics.export'), exportGstReportCsv);
 
 export default router;

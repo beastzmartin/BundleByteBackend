@@ -6,7 +6,7 @@ import {
   updateSubscriptionStatus,
 } from '../controllers/subscriptionController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -14,8 +14,8 @@ router.use(protect);
 
 router.get('/my', getMySubscriptions);
 router.post('/renew', renewSubscription);
-router.get('/all', authorize('admin', 'manager'), getAllSubscriptions);
-router.put('/:id', authorize('admin'), updateSubscriptionStatus);
+router.get('/all', requirePermission('subscriptions.view'), getAllSubscriptions);
+router.put('/:id', requirePermission('subscriptions.update'), updateSubscriptionStatus);
 
 export default router;
 

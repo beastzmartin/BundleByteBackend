@@ -12,7 +12,7 @@ import {
   executeImport,
 } from '../controllers/adminBackupController.js';
 import { protect } from '../middleware/auth.js';
-import { authorize } from '../middleware/roles.js';
+import { requirePermission } from '../middleware/rbac.js';
 
 let tempUploadDir = path.resolve(process.cwd(), 'uploads/temp');
 try {
@@ -37,13 +37,13 @@ const upload = multer({
 
 const router = express.Router();
 
-router.get('/backup/export', protect, authorize('admin', 'super_admin'), exportBackup);
-router.get('/backup/snapshots', protect, authorize('admin', 'super_admin'), getBackupSnapshots);
-router.get('/backup/snapshots/:filename/download', protect, authorize('admin', 'super_admin'), downloadBackupSnapshot);
-router.delete('/backup/snapshots/:filename', protect, authorize('admin', 'super_admin'), deleteBackupSnapshot);
-router.post('/backup/create-snapshot', protect, authorize('admin', 'super_admin'), createBackupSnapshot);
-router.post('/backup/import/validate', protect, authorize('admin', 'super_admin'), upload.single('file'), validateImport);
-router.post('/backup/import/execute', protect, authorize('admin', 'super_admin'), upload.single('file'), executeImport);
+router.get('/backup/export', protect, requirePermission('system_settings.manage'), exportBackup);
+router.get('/backup/snapshots', protect, requirePermission('system_settings.manage'), getBackupSnapshots);
+router.get('/backup/snapshots/:filename/download', protect, requirePermission('system_settings.manage'), downloadBackupSnapshot);
+router.delete('/backup/snapshots/:filename', protect, requirePermission('system_settings.manage'), deleteBackupSnapshot);
+router.post('/backup/create-snapshot', protect, requirePermission('system_settings.manage'), createBackupSnapshot);
+router.post('/backup/import/validate', protect, requirePermission('system_settings.manage'), upload.single('file'), validateImport);
+router.post('/backup/import/execute', protect, requirePermission('system_settings.manage'), upload.single('file'), executeImport);
 
 export default router;
 
