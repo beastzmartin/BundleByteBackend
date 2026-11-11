@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireAdmin } from '../middleware/auth.js';
+import { protect, adminOnly } from '../middleware/auth.js';
 import {
   getPushStats,
   getSubscribersList,
@@ -14,7 +14,7 @@ import {
 const router = express.Router();
 
 router.use(protect);
-router.use(requireAdmin);
+router.use(adminOnly);
 
 router.get('/stats', getPushStats);
 router.get('/subscribers', getSubscribersList);

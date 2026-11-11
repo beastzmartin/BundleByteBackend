@@ -158,6 +158,8 @@ export const adminOnly = (req, res, next) => {
   next();
 };
 
+export const requireAdmin = adminOnly;
+
 export const superAdminOnly = (req, res, next) => {
   if (!req.user || req.user.role !== 'super_admin') {
     return res.status(403).json({
