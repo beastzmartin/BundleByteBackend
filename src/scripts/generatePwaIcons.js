@@ -143,3 +143,4 @@ for (const s of sizes) {
 }
 
 console.log('🎉 PWA Icon Set Generated Successfully!');
+
