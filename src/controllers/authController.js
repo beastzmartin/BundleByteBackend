@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import User from '../models/User.js';
 import { sendTokenResponse } from '../middleware/auth.js';
 import { logAudit } from '../middleware/audit.js';
+import { rbacService } from '../services/rbacService.js';
 import {
   sendWelcomeEmail,
   sendVerificationEmail,
@@ -136,6 +137,16 @@ export const login = async (req, res, next) => {
       req,
     });
 
+    if (user.role !== 'customer') {
+      try {
+        const perms = await rbacService.getUserEffectivePermissions(user._id);
+        user.permissions = perms.allowed || [];
+        user.isSuperAdmin = Boolean(perms.isSuperAdmin);
+      } catch (err) {
+        // Fallback gracefully
+      }
+    }
+
     sendTokenResponse(user, 200, res, 'Logged in successfully');
   } catch (error) {
     next(error);
@@ -165,6 +176,16 @@ export const getMe = async (req, res) => {
   delete userObj.mfaSecret;
 
   userObj.isTeamMember = user.role !== 'customer';
+
+  if (userObj.isTeamMember) {
+    try {
+      const perms = await rbacService.getUserEffectivePermissions(user._id);
+      userObj.permissions = perms.allowed || [];
+      userObj.isSuperAdmin = Boolean(perms.isSuperAdmin);
+    } catch (err) {
+      // Fallback gracefully
+    }
+  }
 
   res.status(200).json({
     success: true,

@@ -124,6 +124,8 @@ export const sendTokenResponse = (user, statusCode, res, message = 'Success') =>
     email: user.email,
     role: user.role,
     isTeamMember: user.role !== 'customer',
+    isSuperAdmin: Boolean(user.isSuperAdmin || user.role === 'super_admin'),
+    permissions: user.permissions || [],
     avatar: user.avatar,
     phone: user.phone,
     isEmailVerified: user.isEmailVerified,
