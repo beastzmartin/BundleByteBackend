@@ -17,6 +17,14 @@ import Wallet from '../models/Wallet.js';
 import WalletTransaction from '../models/WalletTransaction.js';
 import WebsiteSetting from '../models/WebsiteSetting.js';
 import ThemeSettings from '../models/ThemeSettings.js';
+import ChatConversation from '../models/ChatConversation.js';
+import ChatMessage from '../models/ChatMessage.js';
+import SupportTicket from '../models/SupportTicket.js';
+import SupportMessage from '../models/SupportMessage.js';
+import Invoice from '../models/Invoice.js';
+import TaxConfiguration from '../models/TaxConfiguration.js';
+import TaxCategory from '../models/TaxCategory.js';
+import AuditLog from '../models/AuditLog.js';
 import { logAudit } from '../middleware/audit.js';
 
 let backupsDir = path.resolve(process.cwd(), 'backups');
@@ -301,6 +309,159 @@ export const exportBackup = async (req, res, next) => {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-payments-${timestamp}.json"`);
       return res.status(200).send(JSON.stringify(verifications, null, 2));
+    }
+
+    // LIVE CHATS & CONVERSATIONS
+    if (target === 'chats') {
+      const conversations = await ChatConversation.find(dateQuery).populate('customer', 'name email').sort({ createdAt: -1 }).lean();
+      const messages = await ChatMessage.find(dateQuery).sort({ createdAt: 1 }).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'conversationId', label: 'Conversation ID' },
+          { key: 'customerName', label: 'Customer Name', getter: (c) => c.customer?.name || c.guestInfo?.name || 'Guest' },
+          { key: 'customerEmail', label: 'Customer Email', getter: (c) => c.customer?.email || c.guestInfo?.email || '' },
+          { key: 'category', label: 'Category' },
+          { key: 'status', label: 'Status' },
+          { key: 'priority', label: 'Priority' },
+          { key: 'createdAt', label: 'Started At', getter: (c) => new Date(c.createdAt).toLocaleString('en-IN') },
+        ];
+        const csvContent = arrayToCSV(conversations, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-chats-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-chats-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify({ conversations, messages }, null, 2));
+    }
+
+    // SUPPORT TICKETS
+    if (target === 'tickets') {
+      const tickets = await SupportTicket.find(dateQuery).populate('user', 'name email').sort({ createdAt: -1 }).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'ticketId', label: 'Ticket ID' },
+          { key: 'subject', label: 'Subject' },
+          { key: 'customer', label: 'Customer', getter: (t) => t.user?.email || t.guestEmail || '' },
+          { key: 'category', label: 'Category' },
+          { key: 'status', label: 'Status' },
+          { key: 'priority', label: 'Priority' },
+          { key: 'isBreached', label: 'SLA Breached', getter: (t) => (t.isBreached ? 'YES' : 'NO') },
+          { key: 'createdAt', label: 'Created At', getter: (t) => new Date(t.createdAt).toLocaleString('en-IN') },
+        ];
+        const csvContent = arrayToCSV(tickets, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-tickets-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-tickets-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify(tickets, null, 2));
+    }
+
+    // REVIEWS
+    if (target === 'reviews') {
+      const reviews = await Review.find(dateQuery).populate('user', 'name email').populate('product', 'title').sort({ createdAt: -1 }).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'product', label: 'Product', getter: (r) => r.product?.title || '' },
+          { key: 'user', label: 'Customer', getter: (r) => r.user?.name || r.user?.email || '' },
+          { key: 'rating', label: 'Rating' },
+          { key: 'title', label: 'Review Title' },
+          { key: 'comment', label: 'Comment' },
+          { key: 'isVerifiedPurchase', label: 'Verified', getter: (r) => (r.isVerifiedPurchase ? 'YES' : 'NO') },
+          { key: 'createdAt', label: 'Date', getter: (r) => new Date(r.createdAt).toLocaleString('en-IN') },
+        ];
+        const csvContent = arrayToCSV(reviews, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-reviews-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-reviews-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify(reviews, null, 2));
+    }
+
+    // COUPONS
+    if (target === 'coupons') {
+      const coupons = await Coupon.find(dateQuery).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'code', label: 'Coupon Code' },
+          { key: 'discountType', label: 'Discount Type' },
+          { key: 'discountValue', label: 'Discount Value' },
+          { key: 'minOrderAmount', label: 'Min Spend' },
+          { key: 'usageCount', label: 'Total Used' },
+          { key: 'isActive', label: 'Is Active', getter: (c) => (c.isActive ? 'YES' : 'NO') },
+          { key: 'validUntil', label: 'Valid Until', getter: (c) => (c.validUntil ? new Date(c.validUntil).toLocaleDateString('en-IN') : 'Never') },
+        ];
+        const csvContent = arrayToCSV(coupons, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-coupons-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-coupons-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify(coupons, null, 2));
+    }
+
+    // TAX INVOICES
+    if (target === 'invoices' || target === 'taxes') {
+      const invoices = await Invoice.find(dateQuery).sort({ createdAt: -1 }).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'invoiceNumber', label: 'Invoice #' },
+          { key: 'orderNumber', label: 'Order #' },
+          { key: 'customerName', label: 'Customer Name' },
+          { key: 'customerGstin', label: 'GSTIN' },
+          { key: 'subtotal', label: 'Taxable Amount' },
+          { key: 'taxAmount', label: 'GST Tax' },
+          { key: 'total', label: 'Grand Total' },
+          { key: 'status', label: 'Status' },
+          { key: 'createdAt', label: 'Date', getter: (i) => new Date(i.createdAt).toLocaleString('en-IN') },
+        ];
+        const csvContent = arrayToCSV(invoices, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-invoices-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-invoices-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify(invoices, null, 2));
+    }
+
+    // AUDIT LOGS
+    if (target === 'audit' || target === 'audit_logs') {
+      const logs = await AuditLog.find(dateQuery).sort({ createdAt: -1 }).limit(5000).lean();
+
+      if (format === 'csv') {
+        const headers = [
+          { key: 'action', label: 'Action' },
+          { key: 'actorEmail', label: 'Actor Email' },
+          { key: 'actorRole', label: 'Role' },
+          { key: 'entity', label: 'Entity Target' },
+          { key: 'ipAddress', label: 'IP Address' },
+          { key: 'createdAt', label: 'Timestamp', getter: (l) => new Date(l.createdAt).toLocaleString('en-IN') },
+        ];
+        const csvContent = arrayToCSV(logs, headers);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-audit-logs-${timestamp}.csv"`);
+        return res.status(200).send(csvContent);
+      }
+
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="bundlebyte-audit-logs-${timestamp}.json"`);
+      return res.status(200).send(JSON.stringify(logs, null, 2));
     }
 
     return res.status(400).json({ success: false, message: `Unsupported collection '${collection}' for export.` });
@@ -667,6 +828,60 @@ export const executeImport = async (req, res, next) => {
     if (req.file?.path && fs.existsSync(req.file.path)) {
       try { fs.unlinkSync(req.file.path); } catch (_) {}
     }
+  }
+};
+
+/**
+ * GET /api/admin/backup/snapshots/:filename/download
+ * Download a specific on-disk snapshot archive directly
+ */
+export const downloadBackupSnapshot = async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({ success: false, message: 'Invalid snapshot filename.' });
+    }
+    const filePath = path.join(backupsDir, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, message: 'Snapshot archive file not found on server disk.' });
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.download(filePath, filename);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/admin/backup/snapshots/:filename
+ * Delete an on-disk snapshot archive to reclaim space
+ */
+export const deleteBackupSnapshot = async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({ success: false, message: 'Invalid snapshot filename.' });
+    }
+    const filePath = path.join(backupsDir, filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, message: 'Snapshot file not found on server disk.' });
+    }
+    fs.unlinkSync(filePath);
+
+    await logAudit({
+      actor: req.user?._id,
+      actorEmail: req.user?.email,
+      actorRole: req.user?.role,
+      action: 'BACKUP_SNAPSHOT_DELETED',
+      entity: 'SystemBackup',
+      metadata: { filename },
+      req,
+    }).catch(() => {});
+
+    return res.status(200).json({ success: true, message: `Snapshot archive '${filename}' deleted successfully.` });
+  } catch (error) {
+    next(error);
   }
 };
 

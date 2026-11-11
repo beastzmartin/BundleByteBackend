@@ -6,6 +6,8 @@ import {
   exportBackup,
   getBackupSnapshots,
   createBackupSnapshot,
+  downloadBackupSnapshot,
+  deleteBackupSnapshot,
   validateImport,
   executeImport,
 } from '../controllers/adminBackupController.js';
@@ -35,11 +37,13 @@ const upload = multer({
 
 const router = express.Router();
 
-router.get('/backup/export', protect, authorize('admin'), exportBackup);
-router.get('/backup/snapshots', protect, authorize('admin'), getBackupSnapshots);
-router.post('/backup/create-snapshot', protect, authorize('admin'), createBackupSnapshot);
-router.post('/backup/import/validate', protect, authorize('admin'), upload.single('file'), validateImport);
-router.post('/backup/import/execute', protect, authorize('admin'), upload.single('file'), executeImport);
+router.get('/backup/export', protect, authorize('admin', 'super_admin'), exportBackup);
+router.get('/backup/snapshots', protect, authorize('admin', 'super_admin'), getBackupSnapshots);
+router.get('/backup/snapshots/:filename/download', protect, authorize('admin', 'super_admin'), downloadBackupSnapshot);
+router.delete('/backup/snapshots/:filename', protect, authorize('admin', 'super_admin'), deleteBackupSnapshot);
+router.post('/backup/create-snapshot', protect, authorize('admin', 'super_admin'), createBackupSnapshot);
+router.post('/backup/import/validate', protect, authorize('admin', 'super_admin'), upload.single('file'), validateImport);
+router.post('/backup/import/execute', protect, authorize('admin', 'super_admin'), upload.single('file'), executeImport);
 
 export default router;
 

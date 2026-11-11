@@ -13,6 +13,10 @@ export const protect = async (req, res, next) => {
   else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
   }
+  // 3. Check Query parameter token (for direct file downloads, exports, and window.open)
+  else if (req.query && (req.query.token || req.query.auth_token)) {
+    token = req.query.token || req.query.auth_token;
+  }
 
   if (!token) {
     return res.status(401).json({
