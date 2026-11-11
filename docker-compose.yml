@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # =========================================================================
+  # BundleByte Backend API & Socket.IO Real-Time Server
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bundlebyte-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5001}:${PORT:-5001}"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=${PORT:-5001}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/bundlebyte_db}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:5173}
+      - JWT_SECRET=${JWT_SECRET:-bundlebyte_docker_secure_jwt_secret_change_me_to_random_string_64_chars}
+      - JWT_EXPIRE=${JWT_EXPIRE:-7d}
+      - COOKIE_EXPIRE=${COOKIE_EXPIRE:-7}
+      - MOCK_PAYMENT_ENABLED=${MOCK_PAYMENT_ENABLED:-true}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - FROM_EMAIL=${FROM_EMAIL:-support@bundlebyte.com}
+      - FROM_NAME=${FROM_NAME:-BundleByte Marketplace}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_backups:/app/backups
+    networks:
+      - bundlebyte_network
+
+  # =========================================================================
+  # MongoDB Dedicated Database Service
+  # =========================================================================
+  mongo:
+    image: mongo:7-jammy
+    container_name: bundlebyte-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=bundlebyte_db
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - bundlebyte_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  mongo_data:
+    name: bundlebyte_mongo_data
+  backend_uploads:
+    name: bundlebyte_backend_uploads
+  backend_backups:
+    name: bundlebyte_backend_backups
+
+networks:
+  bundlebyte_network:
+    name: bundlebyte_network
+    driver: bridge

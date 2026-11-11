@@ -289,6 +289,30 @@ const startServer = async () => {
       console.log(`📡 Client URL: ${ENV.CLIENT_URL}`);
       console.log(`======================================================\n`);
     });
+
+    // Graceful Shutdown Handler (Docker, Kubernetes, and Process Managers)
+    const gracefulShutdown = async (signal) => {
+      console.log(`\n🛑 Received ${signal}. Initiating graceful container shutdown...`);
+      server.close(() => {
+        console.log('HTTP and WebSocket servers closed.');
+      });
+
+      try {
+        const mongoose = (await import('mongoose')).default;
+        if (mongoose.connection.readyState !== 0) {
+          await mongoose.connection.close(false);
+          console.log('MongoDB connection closed.');
+        }
+      } catch (e) {
+        console.error('Error closing MongoDB connection:', e.message);
+      }
+
+      console.log('👋 Process exiting cleanly.');
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);

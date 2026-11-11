@@ -127,8 +127,8 @@ app.use(sanitizeInput);
 
 // Database connection auto-resolution for Serverless & Express requests
 app.use(async (req, res, next) => {
-  // Skip DB connection for root health and basic static/favicon pings
-  if (req.path === '/' || req.path === '/favicon.ico') {
+  // Skip DB connection for root health, container health checks, and basic static/favicon pings
+  if (req.path === '/' || req.path === '/health' || req.path === '/api/health' || req.path === '/favicon.ico') {
     return next();
   }
   try {
@@ -147,15 +147,19 @@ app.use(async (req, res, next) => {
 // Apply rate limiting to all standard API routes
 app.use('/api/', apiLimiter);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// Health check endpoints (used by Docker HEALTHCHECK, Kubernetes probes, and Render/Cloud monitors)
+const sendHealthStatus = (req, res) => {
   res.status(200).json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: ENV.NODE_ENV,
-    uptime: process.uptime(),
+    uptime: Math.floor(process.uptime()),
+    service: 'BundleByte Marketplace API',
   });
-});
+};
+
+app.get('/health', sendHealthStatus);
+app.get('/api/health', sendHealthStatus);
 
 // SEO & Crawler endpoints
 app.get('/robots.txt', (req, res) => {
