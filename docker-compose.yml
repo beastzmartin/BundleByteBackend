@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # =========================================================================
   # BundleByte Backend API & Socket.IO Real-Time Server
@@ -74,3 +72,4 @@ networks:
   bundlebyte_network:
     name: bundlebyte_network
     driver: bridge
+

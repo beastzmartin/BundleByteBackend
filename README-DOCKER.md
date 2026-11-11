@@ -106,3 +106,4 @@ If you need to seed initial roles, departments, or categories inside the running
 ```bash
 docker compose exec backend npm run seed
 ```
+
